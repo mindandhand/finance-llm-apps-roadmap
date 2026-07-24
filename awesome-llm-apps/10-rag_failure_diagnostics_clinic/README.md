@@ -1,168 +1,86 @@
-# RAG Failure Diagnostics Clinic
+# RAG 故障诊断门诊
 
-A small, framework-agnostic **RAG failure diagnostics clinic**.
+这是一个命令行 RAG 故障诊断工具。用户可以选择内置案例或粘贴真实故障描述，程序会让 DeepSeek 从 P01 到 P12 的故障模式中选择主要模式，并给出最小结构性修复建议。
 
-You paste a real bug description from your LLM + RAG pipeline.  
-The script asks an LLM to classify the failure into one of several **reusable patterns**
-and suggests a **minimal structural fix** (not just “add more context” or “try a better model”).
+## 功能
 
-The goal is to show a pattern-driven way to debug RAG incidents that can be
-adapted to any stack: LangChain, LlamaIndex, custom microservices, or in-house infra.
+- 诊断检索、分块、索引、路由、工具调用、配置和多 Agent 等常见问题
+- 内置 P01 到 P12 故障模式库
+- DeepSeek 直接 HTTP 接口，不使用 OpenAI SDK
+- 中文交互和中文诊断结果
+- 对临时网络错误、429 和 5xx 自动重试 3 次
+- 将每轮诊断保存为 `rag_failure_report.json`
+- 不需要 Qdrant、Exa、Google 或代理
 
----
+## 故障模式
 
-## What you will learn
+| 编号 | 模式 | 典型症状 |
+| --- | --- | --- |
+| P01 | 检索幻觉 / 事实依据漂移 | 回答违背或忽略检索文档 |
+| P02 | 文本分块边界问题 | 事实被拆散、截断或错误组合 |
+| P03 | Embedding 不匹配 | 向量相似度与真实相关性不一致 |
+| P04 | 索引偏移或过期 | 返回旧数据或缺失数据 |
+| P05 | 查询改写或路由错位 | 问题被发送到错误工具或数据集 |
+| P06 | 长链推理漂移 | 多步骤任务逐渐忘记约束 |
+| P07 | 工具调用误用 | 参数错误或缺少事实依据 |
+| P08 | 会话记忆泄漏或上下文缺失 | 对话丢失重要事实 |
+| P09 | 评估盲区 | 测试通过但真实故障仍失败 |
+| P10 | 启动顺序或依赖未就绪 | 部署初期出现崩溃或 5xx |
+| P11 | 环境配置或密钥漂移 | 本地正常，测试或生产环境失败 |
+| P12 | 多租户或多 Agent 相互干扰 | 状态或资源被相互覆盖 |
 
-By running this example, you will learn how to:
-
-- Describe **real-world RAG bugs** in plain text so an LLM can reason about them.
-- Use a small library of **failure patterns** to triage incidents quickly.
-- Ask the model to propose **minimal structural changes** instead of pure prompt tweaks.
-- Call an **OpenAI-compatible API** from a small Python script.
-- Save each diagnosis into a JSON report for later analysis or post-mortems.
-
-This is not a full framework.  
-It is a compact **clinic app** that demonstrates a pattern you can adapt in your own stacks.
-
----
-
-## Folder structure
-
-This tutorial expects the following files in `rag_tutorials/rag_failure_diagnostics_clinic`:
-
-- `README.md` ← this file  
-- `rag_failure_diagnostics_clinic.py` ← minimal interactive CLI script  
-- `requirements.txt` ← Python dependencies  
-
-The script is completely self-contained.  
-All pattern definitions and prompts live inside this folder.
-
----
-
-## Failure patterns (P01–P12)
-
-The clinic uses a small, opinionated set of **12 reusable failure patterns**.
-Each bug is mapped to exactly one primary pattern, with optional secondary candidates.
-
-You can modify or extend these patterns to match your own production incidents.
-
-| ID   | Pattern name                                          | Typical symptom                                                |
-| ---- | ----------------------------------------------------- | -------------------------------------------------------------- |
-| P01  | Retrieval hallucination / grounding drift             | Answer confidently contradicts retrieved documents.            |
-| P02  | Chunk boundary or segmentation bug                    | Relevant facts are split or truncated across chunks.           |
-| P03  | Embedding mismatch / semantic vs vector distance      | Cosine similarity does not match true relevance.               |
-| P04  | Index skew or staleness                               | Old or missing data even though source of truth is updated.    |
-| P05  | Query rewriting or router misalignment                | Router sends queries to the wrong tool or dataset.             |
-| P06  | Long-chain reasoning drift                            | Multi-step tasks gradually lose track of earlier constraints.  |
-| P07  | Tool-call misuse or ungrounded tools                  | Tools are called with wrong arguments or without grounding.    |
-| P08  | Session memory leak / missing context                 | Conversation loses important facts between turns or sessions.  |
-| P09  | Evaluation blind spots                                | System passes tests but fails on real incidents.               |
-| P10  | Startup ordering / dependency not ready               | Services crash or 5xx during the first minutes after deploy.   |
-| P11  | Config or secrets drift across environments           | Works locally, breaks only in staging / prod due to settings.  |
-| P12  | Multi-tenant / multi-agent interference               | Requests or agents step on each other’s state or resources.    |
-
-The built-in examples roughly correspond to:
-
-- Example 1 → retrieval hallucination / grounding drift (P01 style).  
-- Example 2 → startup ordering / dependency not ready (P10 style).  
-- Example 3 → config or secrets drift across environments (P11 style).
-
-You are encouraged to replace these with your own incident snippets.
-
----
-
-## How the clinic works
-
-At a high level:
-
-1. The script builds a **system prompt** that explains the 12 patterns above.
-2. You pick one of three built-in examples or paste your own RAG / LLM bug description.
-3. The model is asked to:
-   - Choose a **primary pattern ID** (P01–P12).  
-   - Optionally choose up to **two secondary candidates**.  
-   - Explain the reasoning in short bullet points.  
-   - Propose a **minimal structural fix** (changes to retrieval, routing, eval, or infra).  
-4. The full answer is printed to the console and also saved into
-   `rag_failure_report.json` together with the original bug text and model name.
-
-The intent is to show how a small **pattern vocabulary + prompt** can turn an LLM
-into a lightweight helper for incident triage.
-
----
-
-## Prerequisites
-
-- Python 3.9 or newer.
-- An API key for any **OpenAI-compatible** chat completion endpoint:
-  - For example, `OPENAI_API_KEY` for `https://api.openai.com/v1`.
-  - Or your own proxy URL set via `OPENAI_BASE_URL`.
-- Basic familiarity with RAG pipelines, logs, and failure modes.
-
----
-
-## Setup
-
-From the root of the `awesome-llm-apps` repo:
+## 运行
 
 ```bash
-cd rag_tutorials/rag_failure_diagnostics_clinic
-pip install -r requirements.txt
-````
-
-Minimal `requirements.txt`:
-
-```text
-openai>=1.6.0
+cd 10-rag_failure_diagnostics_clinic
+python -m pip install -r requirements.txt
 ```
 
-Set your API key as an environment variable (recommended):
+在当前目录、`awesome-llm-apps` 根目录或工作区根目录的 `.env` 中配置：
 
 ```bash
-export OPENAI_API_KEY="sk-..."
-# optional, if you use a custom endpoint
-# export OPENAI_BASE_URL="https://your-proxy.example.com/v1"
-# export OPENAI_MODEL="gpt-4o-mini"
+DEEPSEEK_API_KEY=你的DeepSeek API Key
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_MODEL_ID=deepseek-chat
 ```
 
-> Tip: If you prefer Colab, you can also copy the entire
-> `rag_failure_diagnostics_clinic.py` file into a single Colab cell and run it there.
-
----
-
-## Running the clinic
-
-From inside `rag_tutorials/rag_failure_diagnostics_clinic`:
+启动：
 
 ```bash
 python rag_failure_diagnostics_clinic.py
 ```
 
-You will see a simple text UI:
+或从仓库根目录运行：
 
-* If `OPENAI_API_KEY` is not set, the script will ask for an API key.
-* You can keep the default base URL (`https://api.openai.com/v1`) and model (`gpt-4o`)
-  or override them.
-* Then you choose:
+```bash
+./scripts/run_10_agent.sh
+```
 
-  * `1` → built-in retrieval hallucination example (P01 style).
-  * `2` → startup ordering example (P10 style).
-  * `3` → config / secrets drift example (P11 style).
-  * `p` → paste your own bug description.
+## 使用流程
 
-Each run prints a diagnosis and writes a `rag_failure_report.json` file
-containing the bug text, model settings, and assistant reply.
+1. 启动命令行程序。
+2. 输入 `1`、`2` 或 `3`，选择内置故障案例；输入 `p` 可以粘贴自己的故障描述。
+3. 自定义描述输入完成后，输入空行提交。
+4. 程序调用 DeepSeek，输出主要模式、次要候选、判断依据和最小结构性修复。
+5. 输入 `y` 可以继续诊断其他问题，报告会覆盖写入当前目录的 `rag_failure_report.json`。
 
-You can commit several reports into your own repo as a lightweight
-**RAG incident library**.
+## 代码解读
 
----
+核心代码位于 `rag_failure_diagnostics_clinic.py`，主要分为以下部分：
 
-## Extending this tutorial
+1. `PATTERNS` 保存 P01 到 P12 的模式编号、名称和典型症状，是诊断提示词的知识边界。
+2. `build_system_prompt()` 将模式库转换为中文系统提示，要求模型只能选择已有编号，并按照固定 Markdown 结构回答。
+3. `choose_bug_description()` 负责命令行输入，支持三个内置案例和用户自定义的多行故障描述。
+4. `read_model_config()` 从 `.env` 加载 DeepSeek 配置，不打印 API Key。
+5. `call_deepseek()` 使用 `requests` 直接调用 `/chat/completions`，对临时网络错误和服务端错误进行重试。
+6. `run_once()` 组织一次诊断，并把原始故障、模型名称和诊断结果写入 JSON 报告。
+7. `main()` 负责循环诊断，直到用户选择结束。
 
-Some ideas for extending this pattern:
+## 扩展方向
 
-* Replace the examples with anonymized incidents from your own logs.
-* Add more patterns or split existing ones to match your stack.
-* Emit a richer JSON schema (severity, owners, suspected components).
-* Plug the reports into an evaluation dashboard or incident tracker.
+- 将内置模式抽取到单独的 YAML 或 JSON 文件。
+- 为每个模式增加日志关键词、严重程度和验证步骤。
+- 给报告增加负责人、影响范围和修复状态字段。
+- 使用 BM25 或本地 RAG 检索历史故障报告，辅助相似案例分析。
 
+本项目仅用于技术学习和研究参考，不构成生产事故处理、投资或其他专业建议。

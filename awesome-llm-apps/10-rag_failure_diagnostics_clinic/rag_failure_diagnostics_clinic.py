@@ -8,71 +8,83 @@ Diagnose LLM + RAG bugs into reusable failure patterns (P01–P12).
 import json
 import os
 import textwrap
-from getpass import getpass
+import time
 
-from openai import OpenAI
+import requests
+from dotenv import load_dotenv
+
+
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
+REPO_DIR = os.path.dirname(APP_DIR)
+WORKSPACE_DIR = os.path.dirname(REPO_DIR)
+for env_path in (
+    os.path.join(APP_DIR, ".env"),
+    os.path.join(REPO_DIR, ".env"),
+    os.path.join(WORKSPACE_DIR, ".env"),
+):
+    load_dotenv(env_path)
 
 
 PATTERNS = [
     {
         "id": "P01",
-        "name": "Retrieval hallucination / grounding drift",
-        "summary": "Answer confidently contradicts or ignores retrieved documents.",
+        "name": "检索幻觉 / 事实依据漂移",
+        "summary": "回答自信地违背或忽略检索到的文档。",
     },
     {
         "id": "P02",
-        "name": "Chunk boundary or segmentation bug",
-        "summary": "Relevant facts are split, truncated, or mis-grouped across chunks.",
+        "name": "文本分块边界问题",
+        "summary": "相关事实在分块之间被拆散、截断或错误组合。",
     },
     {
         "id": "P03",
-        "name": "Embedding mismatch / semantic vs vector distance",
-        "summary": "Vector similarity does not match true semantic relevance.",
+        "name": "Embedding 不匹配",
+        "summary": "向量相似度与真实语义相关性不一致。",
     },
     {
         "id": "P04",
-        "name": "Index skew or staleness",
-        "summary": "Index returns old or missing data relative to the source of truth.",
+        "name": "索引偏移或过期",
+        "summary": "索引返回相对于事实源的旧数据或缺失数据。",
     },
     {
         "id": "P05",
-        "name": "Query rewriting or router misalignment",
-        "summary": "Router or rewriter sends queries to the wrong tool or dataset.",
+        "name": "查询改写或路由错位",
+        "summary": "路由器或改写器把问题发送到了错误的工具或数据集。",
     },
     {
         "id": "P06",
-        "name": "Long-chain reasoning drift",
-        "summary": "Multi-step tasks gradually forget earlier constraints or goals.",
+        "name": "长链推理漂移",
+        "summary": "多步骤任务逐渐忘记早期约束或目标。",
     },
     {
         "id": "P07",
-        "name": "Tool-call misuse or ungrounded tools",
-        "summary": "Tools are called with wrong arguments or without proper grounding.",
+        "name": "工具调用误用",
+        "summary": "工具参数错误，或在缺少事实依据时调用工具。",
     },
     {
         "id": "P08",
-        "name": "Session memory leak / missing context",
-        "summary": "Conversation loses important facts between turns or sessions.",
+        "name": "会话记忆泄漏或上下文缺失",
+        "summary": "对话在轮次或会话之间丢失重要事实。",
     },
     {
         "id": "P09",
-        "name": "Evaluation blind spots",
-        "summary": "System passes tests but fails on real incidents or edge cases.",
+        "name": "评估盲区",
+        "summary": "系统通过测试，却在真实事件或边界条件下失败。",
     },
     {
         "id": "P10",
-        "name": "Startup ordering / dependency not ready",
-        "summary": "Services crash or return 5xx during the first minutes after deploy.",
+        "name": "启动顺序或依赖未就绪",
+        "summary": "部署后的最初几分钟内服务崩溃或返回 5xx。",
     },
     {
         "id": "P11",
-        "name": "Config or secrets drift across environments",
-        "summary": "Works locally but breaks in staging or production because of settings.",
+        "name": "环境配置或密钥漂移",
+        "summary": "本地正常，但因配置不同在测试或生产环境失败。",
     },
     {
         "id": "P12",
-        "name": "Multi-tenant or multi-agent interference",
-        "summary": "Requests or agents overwrite each other’s state or resources.",
+        "name": "多租户或多 Agent 相互干扰",
+        "summary": "请求或 Agent 相互覆盖状态或资源。",
     },
 ]
 
@@ -135,29 +147,25 @@ However, similar "first deploy breaks because of missing config" incidents keep 
 
 
 def build_system_prompt() -> str:
-    """Build the system prompt that explains the patterns and the task."""
+    """构造说明故障模式和诊断任务的系统提示词。"""
     header = """
-You are an assistant that triages failures in LLM + RAG pipelines.
+你是一名负责诊断 LLM 与 RAG 流水线故障的助手。
 
-You have a library of reusable failure patterns P01–P12.
-For each bug description, you must:
+你有一套可复用的故障模式库 P01–P12。针对每个故障描述，你必须：
 
-1. Choose exactly ONE primary pattern id from P01–P12.
-2. Optionally choose up to TWO secondary candidate pattern ids.
-3. Explain your reasoning in clear bullet points.
-4. Propose a MINIMAL structural fix:
-   - changes to retrieval, indexing, routing, evaluation, tooling, or infra
-   - avoid generic advice like "add more context" or "use a better model"
+1. 从 P01–P12 中选择且只能选择一个主要模式。
+2. 可选地选择最多两个次要候选模式。
+3. 使用清晰的中文要点解释判断依据。
+4. 提出最小结构性修复：可以涉及检索、索引、路由、评估、工具或基础设施，避免只说“增加上下文”或“换更好的模型”。
 
-You are not allowed to invent new pattern ids.
-Always select from the patterns listed below.
+不允许编造新的模式编号，只能从下面列出的模式中选择。
 
-Return your answer as structured Markdown with the following sections:
+请用中文 Markdown 输出，并包含以下部分：
 
-- Primary pattern
-- Secondary candidates (optional)
-- Reasoning
-- Minimal structural fix
+- 主要模式
+- 次要候选模式（可选）
+- 判断依据
+- 最小结构性修复
 """
     pattern_lines = []
     for p in PATTERNS:
@@ -168,54 +176,89 @@ Return your answer as structured Markdown with the following sections:
     return textwrap.dedent(header).strip() + "\n\nFailure patterns:\n" + patterns_block
 
 
-def make_client_and_model():
-    """Create an OpenAI-compatible client and read model settings."""
-    api_key = os.getenv("OPENAI_API_KEY")
+def read_model_config() -> tuple[str, str, str]:
+    """读取 DeepSeek 配置，不打印 API Key。"""
+    api_key = os.getenv("DEEPSEEK_API_KEY", "").strip()
     if not api_key:
-        api_key = getpass("Enter your OpenAI-compatible API key: ").strip()
+        raise RuntimeError("未找到 DEEPSEEK_API_KEY，请在 .env 中配置。")
+    base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/")
+    model_name = os.getenv("DEEPSEEK_MODEL_ID", "deepseek-chat")
+    print(f"\n模型服务：{base_url}")
+    print(f"模型名称：{model_name}\n")
+    return api_key, base_url, model_name
 
-    base_url = os.getenv("OPENAI_BASE_URL", "").strip() or "https://api.openai.com/v1"
-    model_name = os.getenv("OPENAI_MODEL", "").strip() or "gpt-4o"
 
-    client = OpenAI(api_key=api_key, base_url=base_url)
-    print(f"\nUsing base URL: {base_url}")
-    print(f"Using model:    {model_name}\n")
-    return client, model_name
+def call_deepseek(api_key: str, base_url: str, model_name: str, system_prompt: str, bug: str) -> str:
+    """调用 DeepSeek，并对临时网络或服务错误进行重试。"""
+    payload = {
+        "model": model_name,
+        "temperature": 0.2,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": "以下是故障描述，请按规则诊断：\n\n" + bug},
+        ],
+    }
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    retryable_statuses = {429, 500, 502, 503, 504}
+    for attempt in range(3):
+        try:
+            response = requests.post(
+                f"{base_url}/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=60,
+            )
+        except requests.RequestException as exc:
+            if attempt == 2:
+                raise RuntimeError(f"DeepSeek 网络请求失败：{exc}") from exc
+            time.sleep(2**attempt)
+            continue
+
+        if response.status_code < 400:
+            data = response.json()
+            return data["choices"][0]["message"]["content"] or "未返回诊断内容。"
+        if response.status_code not in retryable_statuses or attempt == 2:
+            detail = response.text[:300]
+            if response.status_code == 503:
+                raise RuntimeError("DeepSeek 当前服务繁忙，已自动重试 3 次，请稍后再试。")
+            raise RuntimeError(f"DeepSeek 请求失败（HTTP {response.status_code}）：{detail}")
+        time.sleep(2**attempt)
+    raise RuntimeError("DeepSeek 请求失败。")
 
 
 def choose_bug_description() -> str:
-    """Let the user choose one of the examples or paste their own bug."""
-    print("Choose an example or paste your own bug description:\n")
-    print("  [1] Example 1 — retrieval hallucination (P01 style)")
-    print("  [2] Example 2 — startup ordering / dependency not ready (P10 style)")
-    print("  [3] Example 3 — config or secrets drift (P11 style)")
-    print("  [p] Paste my own RAG / LLM bug\n")
+    """让用户选择内置示例或粘贴自己的故障描述。"""
+    print("请选择示例，或粘贴自己的故障描述：\n")
+    print("  [1] 示例 1：检索幻觉（P01）")
+    print("  [2] 示例 2：启动顺序问题（P10）")
+    print("  [3] 示例 3：配置或密钥漂移（P11）")
+    print("  [p] 粘贴自己的 RAG / LLM 故障\n")
 
-    choice = input("Your choice: ").strip().lower()
+    choice = input("你的选择：").strip().lower()
     print()
 
     if choice == "1":
         bug = EXAMPLE_1
-        print("You selected Example 1. Full bug description:\n")
+        print("你选择了示例 1，完整故障描述：\n")
         print(bug)
         print()
         return bug
 
     if choice == "2":
         bug = EXAMPLE_2
-        print("You selected Example 2. Full bug description:\n")
+        print("你选择了示例 2，完整故障描述：\n")
         print(bug)
         print()
         return bug
 
     if choice == "3":
         bug = EXAMPLE_3
-        print("You selected Example 3. Full bug description:\n")
+        print("你选择了示例 3，完整故障描述：\n")
         print(bug)
         print()
         return bug
 
-    print("Paste your bug description. End with an empty line.")
+    print("请粘贴故障描述，输入空行结束：")
     lines = []
     while True:
         try:
@@ -228,44 +271,29 @@ def choose_bug_description() -> str:
 
     user_bug = "\n".join(lines).strip()
     if not user_bug:
-        print("No bug description detected, aborting this round.\n")
+        print("没有检测到故障描述，本轮结束。\n")
         return ""
 
-    print("\nYou pasted the following bug description:\n")
+    print("\n你输入的故障描述：\n")
     print(user_bug)
     print()
     return user_bug
 
 
-def run_once(client: OpenAI, model_name: str, system_prompt: str) -> None:
-    """Run one diagnosis round."""
+def run_once(api_key: str, base_url: str, model_name: str, system_prompt: str) -> None:
+    """执行一轮故障诊断。"""
     bug = choose_bug_description()
     if not bug:
         return
 
-    print("Running diagnosis ...\n")
+    print("正在进行故障诊断……\n")
 
     try:
-        completion = client.chat.completions.create(
-            model=model_name,
-            temperature=0.2,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {
-                    "role": "user",
-                    "content": (
-                        "Here is the bug description. "
-                        "Follow the pattern rules described above.\n\n"
-                        + bug
-                    ),
-                },
-            ],
-        )
+        reply = call_deepseek(api_key, base_url, model_name, system_prompt, bug)
     except Exception as exc:
-        print(f"Error while calling the model: {exc}")
+        print(f"调用 DeepSeek 失败：{exc}")
         return
 
-    reply = completion.choices[0].message.content or ""
     print(reply)
 
     report = {
@@ -277,20 +305,24 @@ def run_once(client: OpenAI, model_name: str, system_prompt: str) -> None:
     try:
         with open("rag_failure_report.json", "w", encoding="utf-8") as f:
             json.dump(report, f, indent=2)
-        print("\nSaved report to rag_failure_report.json\n")
+        print("\n诊断报告已保存到 rag_failure_report.json\n")
     except OSError as exc:
-        print(f"\nCould not write report file: {exc}\n")
+        print(f"\n无法写入报告文件：{exc}\n")
 
 
 def main():
     system_prompt = build_system_prompt()
-    client, model_name = make_client_and_model()
+    try:
+        api_key, base_url, model_name = read_model_config()
+    except RuntimeError as exc:
+        print(f"配置错误：{exc}")
+        return
 
     while True:
-        run_once(client, model_name, system_prompt)
-        again = input("Debug another bug? (y/n): ").strip().lower()
+        run_once(api_key, base_url, model_name, system_prompt)
+        again = input("是否继续诊断其他故障？（y/n）：").strip().lower()
         if again != "y":
-            print("Session finished. Goodbye.")
+            print("诊断结束。")
             break
         print()
 

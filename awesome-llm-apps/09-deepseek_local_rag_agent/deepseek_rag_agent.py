@@ -1,526 +1,206 @@
 import os
-import tempfile
-from datetime import datetime
-from typing import List
+import re
+import time
+from pathlib import Path
+from typing import Any
+
+import requests
 import streamlit as st
-import bs4
-from agno.agent import Agent
-from agno.models.ollama import Ollama
-from langchain_community.document_loaders import PyPDFLoader, WebBaseLoader
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_qdrant import QdrantVectorStore
-from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams
-from langchain_core.embeddings import Embeddings
-from agno.tools.exa import ExaTools
-from agno.embedder.ollama import OllamaEmbedder
+from dotenv import load_dotenv
+from pypdf import PdfReader
+from rank_bm25 import BM25Okapi
 
 
-class OllamaEmbedderr(Embeddings):
-    def __init__(self, model_name="snowflake-arctic-embed"):
-        """
-        Initialize the OllamaEmbedderr with a specific model.
-
-        Args:
-            model_name (str): The name of the model to use for embedding.
-        """
-        self.embedder = OllamaEmbedder(id=model_name, dimensions=1024)
-
-    def embed_documents(self, texts: List[str]) -> List[List[float]]:
-        return [self.embed_query(text) for text in texts]
-
-    def embed_query(self, text: str) -> List[float]:
-        return self.embedder.get_embedding(text)
+APP_DIR = Path(__file__).resolve().parent
+REPO_DIR = APP_DIR.parent
+WORKSPACE_DIR = REPO_DIR.parent
+for env_path in (APP_DIR / ".env", REPO_DIR / ".env", WORKSPACE_DIR / ".env"):
+    load_dotenv(env_path)
 
 
-# Constants
-COLLECTION_NAME = "test-deepseek-r1"
+def split_text(text: str, chunk_size: int = 900, overlap: int = 120) -> list[str]:
+    normalized = re.sub(r"\s+", " ", text).strip()
+    if not normalized:
+        return []
+    chunks = []
+    start = 0
+    while start < len(normalized):
+        end = min(start + chunk_size, len(normalized))
+        chunks.append(normalized[start:end])
+        if end == len(normalized):
+            break
+        start = end - overlap
+    return chunks
 
 
-# Streamlit App Initialization
-st.title("🐋 Deepseek Local RAG Reasoning Agent")
-
-# Session State Initialization
-if 'google_api_key' not in st.session_state:
-    st.session_state.google_api_key = ""
-if 'qdrant_api_key' not in st.session_state:
-    st.session_state.qdrant_api_key = ""
-if 'qdrant_url' not in st.session_state:
-    st.session_state.qdrant_url = ""
-if 'model_version' not in st.session_state:
-    st.session_state.model_version = "deepseek-r1:1.5b"  # Default to lighter model
-if 'vector_store' not in st.session_state:
-    st.session_state.vector_store = None
-if 'processed_documents' not in st.session_state:
-    st.session_state.processed_documents = []
-if 'history' not in st.session_state:
-    st.session_state.history = []
-if 'exa_api_key' not in st.session_state:
-    st.session_state.exa_api_key = ""
-if 'use_web_search' not in st.session_state:
-    st.session_state.use_web_search = False
-if 'force_web_search' not in st.session_state:
-    st.session_state.force_web_search = False
-if 'similarity_threshold' not in st.session_state:
-    st.session_state.similarity_threshold = 0.7
-if 'rag_enabled' not in st.session_state:
-    st.session_state.rag_enabled = True  # RAG is enabled by default
+def read_uploaded_file(uploaded_file: Any) -> str:
+    if uploaded_file.name.lower().endswith(".pdf"):
+        reader = PdfReader(uploaded_file)
+        return "\n".join(page.extract_text() or "" for page in reader.pages)
+    return uploaded_file.getvalue().decode("utf-8", errors="ignore")
 
 
-# Sidebar Configuration
-st.sidebar.header("🤖 Agent Configuration")
+def tokenize(text: str) -> list[str]:
+    words = re.findall(r"[a-zA-Z0-9_]+|[\u4e00-\u9fff]", text.lower())
+    return [word for word in words if len(word.strip()) > 0]
 
-# Model Selection
-st.sidebar.header("📦 Model Selection")
-model_help = """
-- 1.5b: Lighter model, suitable for most laptops
-- 7b: More capable but requires better GPU/RAM
 
-Choose based on your hardware capabilities.
+def retrieve(query: str, documents: list[dict[str, str]], limit: int = 5) -> list[dict[str, str]]:
+    if not documents:
+        return []
+    tokenized_documents = [tokenize(document["content"]) for document in documents]
+    query_tokens = tokenize(query)
+    if not query_tokens:
+        return []
+
+    scores = BM25Okapi(tokenized_documents).get_scores(query_tokens)
+    ranked_indexes = sorted(range(len(documents)), key=lambda index: scores[index], reverse=True)
+    return [documents[index] for index in ranked_indexes[:limit] if scores[index] > 0]
+
+
+def call_deepseek(question: str, context: str) -> str:
+    api_key = os.getenv("DEEPSEEK_API_KEY")
+    if not api_key:
+        raise RuntimeError("未找到 DEEPSEEK_API_KEY，请在 .env 中配置。")
+
+    model = os.getenv("DEEPSEEK_MODEL_ID", "deepseek-chat")
+    base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/")
+    prompt = f"""请用中文回答用户问题。
+
+你是一个严谨的本地文档问答助手。只能把文档上下文作为事实依据；如果上下文没有答案，请明确说“文档中没有足够信息”，并给出需要补充的资料。区分文档事实和你的推断，不要编造数字、日期或来源。
+
+文档上下文：
+{context or "没有检索到相关文档。"}
+
+用户问题：
+{question}
 """
-st.session_state.model_version = st.sidebar.radio(
-    "Select Model Version",
-    options=["deepseek-r1:1.5b", "deepseek-r1:7b"],
-    help=model_help
-)
-st.sidebar.info("Run ollama pull deepseek-r1:7b or deepseek-r1:1.5b respectively")
+    request_body = {
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.2,
+    }
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    retryable_statuses = {429, 500, 502, 503, 504}
+    last_error = "未知错误"
 
-# RAG Mode Toggle
-st.sidebar.header("🔍 RAG Configuration")
-st.session_state.rag_enabled = st.sidebar.toggle("Enable RAG Mode", value=st.session_state.rag_enabled)
-
-# Clear Chat Button
-if st.sidebar.button("🗑️ Clear Chat History"):
-    st.session_state.history = []
-    st.rerun()
-
-# Show API Configuration only if RAG is enabled
-if st.session_state.rag_enabled:
-    st.sidebar.header("🔑 API Configuration")
-    qdrant_api_key = st.sidebar.text_input("Qdrant API Key", type="password", value=st.session_state.qdrant_api_key)
-    qdrant_url = st.sidebar.text_input("Qdrant URL", 
-                                     placeholder="https://your-cluster.cloud.qdrant.io:6333",
-                                     value=st.session_state.qdrant_url)
-
-    # Update session state
-    st.session_state.qdrant_api_key = qdrant_api_key
-    st.session_state.qdrant_url = qdrant_url
-    
-    # Search Configuration (only shown in RAG mode)
-    st.sidebar.header("🎯 Search Configuration")
-    st.session_state.similarity_threshold = st.sidebar.slider(
-        "Document Similarity Threshold",
-        min_value=0.0,
-        max_value=1.0,
-        value=0.7,
-        help="Lower values will return more documents but might be less relevant. Higher values are more strict."
-    )
-
-# Add in the sidebar configuration section, after the existing API inputs
-
-st.sidebar.header("🌐 Web Search Configuration")
-st.session_state.use_web_search = st.sidebar.checkbox("Enable Web Search Fallback", value=st.session_state.use_web_search)
-
-if st.session_state.use_web_search:
-    exa_api_key = st.sidebar.text_input(
-        "Exa AI API Key", 
-        type="password",
-        value=st.session_state.exa_api_key,
-        help="Required for web search fallback when no relevant documents are found"
-    )
-    st.session_state.exa_api_key = exa_api_key
-    
-    # Optional domain filtering
-    default_domains = ["arxiv.org", "wikipedia.org", "github.com", "medium.com"]
-    custom_domains = st.sidebar.text_input(
-        "Custom domains (comma-separated)", 
-        value=",".join(default_domains),
-        help="Enter domains to search from, e.g.: arxiv.org,wikipedia.org"
-    )
-    search_domains = [d.strip() for d in custom_domains.split(",") if d.strip()]
-
-# Search Configuration moved inside RAG mode check
-
-
-# Utility Functions
-def init_qdrant() -> QdrantClient | None:
-    """Initialize Qdrant client with configured settings.
-
-    Returns:
-        QdrantClient: The initialized Qdrant client if successful.
-        None: If the initialization fails.
-    """
-    if not all([st.session_state.qdrant_api_key, st.session_state.qdrant_url]):
-        return None
-    try:
-        return QdrantClient(
-            url=st.session_state.qdrant_url,
-            api_key=st.session_state.qdrant_api_key,
-            timeout=60
-        )
-    except Exception as e:
-        st.error(f"🔴 Qdrant connection failed: {str(e)}")
-        return None
-
-
-# Document Processing Functions
-def process_pdf(file) -> List:
-    """Process PDF file and add source metadata."""
-    try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_file:
-            tmp_file.write(file.getvalue())
-            loader = PyPDFLoader(tmp_file.name)
-            documents = loader.load()
-            
-            # Add source metadata
-            for doc in documents:
-                doc.metadata.update({
-                    "source_type": "pdf",
-                    "file_name": file.name,
-                    "timestamp": datetime.now().isoformat()
-                })
-                
-            text_splitter = RecursiveCharacterTextSplitter(
-                chunk_size=1000,
-                chunk_overlap=200
-            )
-            return text_splitter.split_documents(documents)
-    except Exception as e:
-        st.error(f"📄 PDF processing error: {str(e)}")
-        return []
-
-
-def process_web(url: str) -> List:
-    """Process web URL and add source metadata."""
-    try:
-        loader = WebBaseLoader(
-            web_paths=(url,),
-            bs_kwargs=dict(
-                parse_only=bs4.SoupStrainer(
-                    class_=("post-content", "post-title", "post-header", "content", "main")
-                )
-            )
-        )
-        documents = loader.load()
-        
-        # Add source metadata
-        for doc in documents:
-            doc.metadata.update({
-                "source_type": "url",
-                "url": url,
-                "timestamp": datetime.now().isoformat()
-            })
-            
-        text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=1000,
-            chunk_overlap=200
-        )
-        return text_splitter.split_documents(documents)
-    except Exception as e:
-        st.error(f"🌐 Web processing error: {str(e)}")
-        return []
-
-
-# Vector Store Management
-def create_vector_store(client, texts):
-    """Create and initialize vector store with documents."""
-    try:
-        # Create collection if needed
+    for attempt in range(3):
         try:
-            client.create_collection(
-                collection_name=COLLECTION_NAME,
-                vectors_config=VectorParams(
-                    size=1024,  
-                    distance=Distance.COSINE
-                )
+            response = requests.post(
+                f"{base_url}/chat/completions",
+                headers=headers,
+                json=request_body,
+                timeout=60,
             )
-            st.success(f"📚 Created new collection: {COLLECTION_NAME}")
-        except Exception as e:
-            if "already exists" not in str(e).lower():
-                raise e
-        
-        # Initialize vector store
-        vector_store = QdrantVectorStore(
-            client=client,
-            collection_name=COLLECTION_NAME,
-            embedding=OllamaEmbedderr()
-        )
-        
-        # Add documents
-        with st.spinner('📤 Uploading documents to Qdrant...'):
-            vector_store.add_documents(texts)
-            st.success("✅ Documents stored successfully!")
-            return vector_store
-            
-    except Exception as e:
-        st.error(f"🔴 Vector store error: {str(e)}")
-        return None
+        except requests.RequestException as exc:
+            last_error = str(exc)
+            if attempt == 2:
+                break
+            time.sleep(2**attempt)
+            continue
 
-def get_web_search_agent() -> Agent:
-    """Initialize a web search agent."""
-    return Agent(
-        name="Web Search Agent",
-        model=Ollama(id="llama3.2"),
-        tools=[ExaTools(
-            api_key=st.session_state.exa_api_key,
-            include_domains=search_domains,
-            num_results=5
-        )],
-        instructions="""You are a web search expert. Your task is to:
-        1. Search the web for relevant information about the query
-        2. Compile and summarize the most relevant information
-        3. Include sources in your response
-        """,
-        show_tool_calls=True,
-        markdown=True,
+        if response.status_code < 400:
+            data = response.json()
+            return data["choices"][0]["message"]["content"]
+
+        last_error = response.text[:300]
+        if response.status_code not in retryable_statuses or attempt == 2:
+            break
+        retry_after = response.headers.get("Retry-After")
+        try:
+            delay = min(float(retry_after), 10) if retry_after else 2**attempt
+        except ValueError:
+            delay = 2**attempt
+        time.sleep(delay)
+
+    if "service_unavailable_error" in last_error or "Service is too busy" in last_error:
+        raise RuntimeError("DeepSeek 当前服务繁忙，已自动重试 3 次，请稍后再次提交问题。")
+    raise RuntimeError(f"DeepSeek 请求失败：{last_error}")
+
+
+st.set_page_config(page_title="本地 DeepSeek RAG", page_icon="📚", layout="wide")
+st.title("本地 DeepSeek RAG 文档问答")
+st.caption("本地读取文档并检索相关片段，再使用 DeepSeek 生成中文回答。")
+
+if "documents" not in st.session_state:
+    st.session_state.documents = []
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+with st.sidebar:
+    st.header("文档库")
+    uploaded_files = st.file_uploader(
+        "上传 PDF、TXT 或 Markdown",
+        type=["pdf", "txt", "md"],
+        accept_multiple_files=True,
     )
-
-
-def get_rag_agent() -> Agent:
-    """Initialize the main RAG agent."""
-    return Agent(
-        name="DeepSeek RAG Agent",
-        model=Ollama(id=st.session_state.model_version),
-        instructions="""You are an Intelligent Agent specializing in providing accurate answers.
-
-        When asked a question:
-        - Analyze the question and answer the question with what you know.
-        
-        When given context from documents:
-        - Focus on information from the provided documents
-        - Be precise and cite specific details
-        
-        When given web search results:
-        - Clearly indicate that the information comes from web search
-        - Synthesize the information clearly
-        
-        Always maintain high accuracy and clarity in your responses.
-        """,
-        show_tool_calls=True,
-        markdown=True,
-    )
-
-
-
-
-def check_document_relevance(query: str, vector_store, threshold: float = 0.7) -> tuple[bool, List]:
-
-    if not vector_store:
-        return False, []
-        
-    retriever = vector_store.as_retriever(
-        search_type="similarity_score_threshold",
-        search_kwargs={"k": 5, "score_threshold": threshold}
-    )
-    docs = retriever.invoke(query)
-    return bool(docs), docs
-
-
-chat_col, toggle_col = st.columns([0.9, 0.1])
-
-with chat_col:
-    prompt = st.chat_input("Ask about your documents..." if st.session_state.rag_enabled else "Ask me anything...")
-
-with toggle_col:
-    st.session_state.force_web_search = st.toggle('🌐', help="Force web search")
-
-# Check if RAG is enabled 
-if st.session_state.rag_enabled:
-    qdrant_client = init_qdrant()
-    
-    # File/URL Upload Section
-    st.sidebar.header("📁 Data Upload")
-    uploaded_file = st.sidebar.file_uploader("Upload PDF", type=["pdf"])
-    web_url = st.sidebar.text_input("Or enter URL")
-    
-    # Process documents
-    if uploaded_file:
-        file_name = uploaded_file.name
-        if file_name not in st.session_state.processed_documents:
-            with st.spinner('Processing PDF...'):
-                texts = process_pdf(uploaded_file)
-                if texts and qdrant_client:
-                    if st.session_state.vector_store:
-                        st.session_state.vector_store.add_documents(texts)
-                    else:
-                        st.session_state.vector_store = create_vector_store(qdrant_client, texts)
-                    st.session_state.processed_documents.append(file_name)
-                    st.success(f"✅ Added PDF: {file_name}")
-
-    if web_url:
-        if web_url not in st.session_state.processed_documents:
-            with st.spinner('Processing URL...'):
-                texts = process_web(web_url)
-                if texts and qdrant_client:
-                    if st.session_state.vector_store:
-                        st.session_state.vector_store.add_documents(texts)
-                    else:
-                        st.session_state.vector_store = create_vector_store(qdrant_client, texts)
-                    st.session_state.processed_documents.append(web_url)
-                    st.success(f"✅ Added URL: {web_url}")
-
-    # Display sources in sidebar
-    if st.session_state.processed_documents:
-        st.sidebar.header("📚 Processed Sources")
-        for source in st.session_state.processed_documents:
-            if source.endswith('.pdf'):
-                st.sidebar.text(f"📄 {source}")
-            else:
-                st.sidebar.text(f"🌐 {source}")
-
-if prompt:
-    # Add user message to history
-    st.session_state.history.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
-        st.write(prompt)
-
-    if st.session_state.rag_enabled:
-
-            # Existing RAG flow remains unchanged
-            with st.spinner("🤔Evaluating the Query..."):
-                try:
-                    rewritten_query = prompt
-                    
-                    with st.expander("Evaluating the query"):
-                        st.write(f"User's Prompt: {prompt}")
-                except Exception as e:
-                    st.error(f"❌ Error rewriting query: {str(e)}")
-                    rewritten_query = prompt
-
-            # Step 2: Choose search strategy based on force_web_search toggle
-            context = ""
-            docs = []
-            if not st.session_state.force_web_search and st.session_state.vector_store:
-                # Try document search first
-                retriever = st.session_state.vector_store.as_retriever(
-                    search_type="similarity_score_threshold",
-                    search_kwargs={
-                        "k": 5, 
-                        "score_threshold": st.session_state.similarity_threshold
-                    }
-                )
-                docs = retriever.invoke(rewritten_query)
-                if docs:
-                    context = "\n\n".join([d.page_content for d in docs])
-                    st.info(f"📊 Found {len(docs)} relevant documents (similarity > {st.session_state.similarity_threshold})")
-                elif st.session_state.use_web_search:
-                    st.info("🔄 No relevant documents found in database, falling back to web search...")
-
-            # Step 3: Use web search if:
-            # 1. Web search is forced ON via toggle, or
-            # 2. No relevant documents found AND web search is enabled in settings
-            if (st.session_state.force_web_search or not context) and st.session_state.use_web_search and st.session_state.exa_api_key:
-                with st.spinner("🔍 Searching the web..."):
-                    try:
-                        web_search_agent = get_web_search_agent()
-                        web_results = web_search_agent.run(rewritten_query).content
-                        if web_results:
-                            context = f"Web Search Results:\n{web_results}"
-                            if st.session_state.force_web_search:
-                                st.info("ℹ️ Using web search as requested via toggle.")
-                            else:
-                                st.info("ℹ️ Using web search as fallback since no relevant documents were found.")
-                    except Exception as e:
-                        st.error(f"❌ Web search error: {str(e)}")
-
-            # Step 4: Generate response using the RAG agent
-            with st.spinner("🤖 Thinking..."):
-                try:
-                    rag_agent = get_rag_agent()
-                    
-                    if context:
-                        full_prompt = f"""Context: {context}
-
-Original Question: {prompt}
-Please provide a comprehensive answer based on the available information."""
-                    else:
-                        full_prompt = f"Original Question: {prompt}\n"
-                        st.info("ℹ️ No relevant information found in documents or web search.")
-
-                    response = rag_agent.run(full_prompt)
-                    
-                    # Add assistant response to history
-                    st.session_state.history.append({
-                        "role": "assistant",
-                        "content": response.content
-                    })
-                    
-                    # Display assistant response
-                    with st.chat_message("assistant"):
-                        st.write(response.content)
-                        
-                        # Show sources if available
-                        if not st.session_state.force_web_search and 'docs' in locals() and docs:
-                            with st.expander("🔍 See document sources"):
-                                for i, doc in enumerate(docs, 1):
-                                    source_type = doc.metadata.get("source_type", "unknown")
-                                    source_icon = "📄" if source_type == "pdf" else "🌐"
-                                    source_name = doc.metadata.get("file_name" if source_type == "pdf" else "url", "unknown")
-                                    st.write(f"{source_icon} Source {i} from {source_name}:")
-                                    st.write(f"{doc.page_content[:200]}...")
-
-                except Exception as e:
-                    st.error(f"❌ Error generating response: {str(e)}")
-
-    else:
-        # Simple mode without RAG
-        with st.spinner("🤖 Thinking..."):
+    if st.button("导入文档", use_container_width=True):
+        imported = 0
+        for uploaded_file in uploaded_files or []:
             try:
-                rag_agent = get_rag_agent()
-                web_search_agent = get_web_search_agent() if st.session_state.use_web_search else None
-                
-                # Handle web search if forced or enabled
-                context = ""
-                if st.session_state.force_web_search and web_search_agent:
-                    with st.spinner("🔍 Searching the web..."):
-                        try:
-                            web_results = web_search_agent.run(prompt).content
-                            if web_results:
-                                context = f"Web Search Results:\n{web_results}"
-                                st.info("ℹ️ Using web search as requested.")
-                        except Exception as e:
-                            st.error(f"❌ Web search error: {str(e)}")
-                
-                # Generate response
-                if context:
-                    full_prompt = f"""Context: {context}
+                text = read_uploaded_file(uploaded_file)
+                chunks = split_text(text)
+                st.session_state.documents = [
+                    document
+                    for document in st.session_state.documents
+                    if document["source"] != uploaded_file.name
+                ]
+                st.session_state.documents.extend(
+                    {"source": uploaded_file.name, "content": chunk} for chunk in chunks
+                )
+                imported += 1
+            except Exception as exc:
+                st.error(f"读取 {uploaded_file.name} 失败：{exc}")
+        if imported:
+            st.success(f"已导入 {imported} 个文件，共 {len(st.session_state.documents)} 个文本片段。")
 
-Question: {prompt}
+    if st.button("清空文档和对话", use_container_width=True):
+        st.session_state.documents = []
+        st.session_state.messages = []
+        st.rerun()
 
-Please provide a comprehensive answer based on the available information."""
+    if os.getenv("DEEPSEEK_API_KEY"):
+        st.success("已检测到 DeepSeek API Key")
+    else:
+        st.warning("未检测到 DEEPSEEK_API_KEY")
+    st.caption("检索在本地内存中完成，不需要 Qdrant、Exa 或 Ollama。")
+
+for message in st.session_state.messages:
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
+
+question = st.chat_input("例如：这份材料中提到的主要风险是什么？")
+if question:
+    st.session_state.messages.append({"role": "user", "content": question})
+    with st.chat_message("user"):
+        st.markdown(question)
+
+    matches = retrieve(question, st.session_state.documents)
+    context = "\n\n".join(f"[{item['source']}]\n{item['content']}" for item in matches)
+    with st.chat_message("assistant"):
+        with st.spinner("正在检索本地文档并请求 DeepSeek..."):
+            try:
+                answer = call_deepseek(question, context)
+                st.markdown(answer)
+                if matches:
+                    with st.expander("查看引用片段"):
+                        for item in matches:
+                            st.markdown(f"**{item['source']}**\n\n{item['content']}")
                 else:
-                    full_prompt = prompt
-
-                response = rag_agent.run(full_prompt)
-                response_content = response.content
-                
-                # Extract thinking process and final response
-                import re
-                think_pattern = r'<think>(.*?)</think>'
-                think_match = re.search(think_pattern, response_content, re.DOTALL)
-                
-                if think_match:
-                    thinking_process = think_match.group(1).strip()
-                    final_response = re.sub(think_pattern, '', response_content, flags=re.DOTALL).strip()
+                    st.info("未检索到匹配文档，回答应视为信息不足提示。")
+                st.session_state.messages.append({"role": "assistant", "content": answer})
+            except Exception as exc:
+                if matches:
+                    fallback = (
+                        "DeepSeek 当前暂时不可用，无法生成总结。下面是本地检索到的相关文档片段，"
+                        "请稍后重新提交问题以获得完整中文回答。"
+                    )
+                    st.warning(fallback)
+                    with st.expander("查看本地检索结果"):
+                        for item in matches:
+                            st.markdown(f"**{item['source']}**\n\n{item['content']}")
+                    st.session_state.messages.append({"role": "assistant", "content": fallback})
                 else:
-                    thinking_process = None
-                    final_response = response_content
-                
-                # Add assistant response to history (only the final response)
-                st.session_state.history.append({
-                    "role": "assistant",
-                    "content": final_response
-                })
-                
-                # Display assistant response
-                with st.chat_message("assistant"):
-                    if thinking_process:
-                        with st.expander("🤔 See thinking process"):
-                            st.markdown(thinking_process)
-                    st.markdown(final_response)
-
-            except Exception as e:
-                st.error(f"❌ Error generating response: {str(e)}")
-
-else:
-    st.warning("You can directly talk to r1 locally! Toggle the RAG mode to upload documents!")
+                    error_message = f"回答失败：{exc}"
+                    st.error(error_message)
+                    st.session_state.messages.append({"role": "assistant", "content": error_message})

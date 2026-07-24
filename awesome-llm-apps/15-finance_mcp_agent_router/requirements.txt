@@ -1,0 +1,6 @@
+streamlit>=1.40.0
+agno>=2.2.10
+yfinance
+ddgs
+duckduckgo-search
+python-dotenv>=1.0.0
