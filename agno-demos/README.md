@@ -48,7 +48,7 @@ AG-UI / AgentUI / 自定义前端
 
 | # | 目录 | 主题 | 新增能力 | 前端形态 |
 |---|---|---|---|---|
-| 1 | `01-hello-agent` | 最小 Agno Agent | 跑通模型调用、指令和 Markdown 输出 | 终端 |
+| 1 | [`01-hello-agent`](01-hello-agent) | 最小 Agno Agent | 跑通模型调用、指令和 Markdown 输出 | 终端 |
 | 2 | `02-agent-with-finance-tools` | 金融工具调用 | 行情、新闻、指标查询工具 | 终端 |
 | 3 | `03-structured-output` | 结构化输出 | Pydantic schema、可解析 JSON、错误提示 | 终端 |
 | 4 | `04-agentos-basic` | AgentOS 服务化 | FastAPI app、`/docs`、本地服务启动 | Swagger / AgentOS |
