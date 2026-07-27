@@ -1,6 +1,6 @@
 # finance-llm-apps-roadmap
 
-这个工作区用于本地学习和调试金融类 LLM 应用与 Agent 示例。项目包含 LangGraph、Agno 等多种 Agent 框架，也包含 Streamlit、RAG、MCP 和直接调用 DeepSeek 的应用。示例集中放在 `awesome-llm-apps` 目录，Agno 开源 AgentUI 放在 `tools/agent-ui`，运行脚本放在 `scripts/` 和 `awesome-llm-apps/scripts/`。
+这个工作区用于本地学习和调试金融类 LLM 应用与 Agent 示例。项目包含 LangGraph、Agno 等多种 Agent 框架，也包含 Streamlit、RAG、MCP 和直接调用 DeepSeek 的应用。示例集中放在 `awesome-llm-apps` 目录，Agno 渐进式学习规划放在 `agno-demos`，Agno 开源 AgentUI 放在 `tools/agent-ui`，运行脚本放在 `scripts/` 和 `awesome-llm-apps/scripts/`。
 
 ## 本地运行方式
 
@@ -71,6 +71,16 @@ http://localhost:3000
 ```text
 http://localhost:7777
 ```
+
+## Agno Demos 规划
+
+`agno-demos/` 规划了一条从最小 Agno Agent 到交互友好前后端的学习路径：
+
+```text
+Agent -> Tools -> Memory -> Team -> Workflow -> AgentOS -> AG-UI / 自定义前端
+```
+
+详见 [`agno-demos/README.md`](agno-demos/README.md)。
 
 ## Streamlit 示例
 
