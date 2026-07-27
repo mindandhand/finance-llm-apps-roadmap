@@ -1,4 +1,4 @@
-"""Streamlit interface for typed, cited, self-refusing RAG."""
+"""带类型校验、引用和拒答机制的 RAG Streamlit 界面。"""
 
 from __future__ import annotations
 
@@ -9,12 +9,15 @@ from pathlib import PurePath
 import streamlit as st
 from dotenv import load_dotenv
 
-from agent import Answer, RagDependencies, answer_question, model_for_provider
+from agent import (
+    Answer,
+    RagDependencies,
+    answer_question,
+    default_deepseek_model_name,
+)
 from rag import (
     HashingEmbeddingBackend,
     InMemoryVectorStore,
-    OpenAIEmbeddingBackend,
-    default_embedding_backend,
     fetch_url_text,
     ingest_pdf,
 )
@@ -23,29 +26,23 @@ from rag import (
 load_dotenv()
 
 st.set_page_config(
-    page_title="Typed Agentic RAG",
+    page_title="类型化 Agentic RAG",
     page_icon="📎",
     layout="wide",
 )
 
 
 def run_async(awaitable):
-    """Run one async operation from Streamlit's synchronous script."""
+    """在 Streamlit 的同步脚本里执行一个异步操作。"""
     return asyncio.run(awaitable)
 
 
 def selected_embedding_backend(mode: str):
-    if mode == "OpenAI":
-        if not os.getenv("OPENAI_API_KEY"):
-            raise RuntimeError("OpenAI embeddings require OPENAI_API_KEY")
-        return OpenAIEmbeddingBackend()
-    if mode == "Local hashing":
-        return HashingEmbeddingBackend()
-    return default_embedding_backend()
+    return HashingEmbeddingBackend()
 
 
 async def build_knowledge_base(files, docs_url: str, embedding_mode: str):
-    """Build a fresh vector store from the current source selection."""
+    """根据当前选择的资料重新构建一个内存向量库。"""
     store = InMemoryVectorStore(selected_embedding_backend(embedding_mode))
     indexed = []
 
@@ -63,12 +60,12 @@ async def build_knowledge_base(files, docs_url: str, embedding_mode: str):
 
 
 def render_answer(answer: Answer) -> None:
-    """Render either a grounded answer card or a clear refusal state."""
+    """渲染有依据的回答，或展示清晰的拒答状态。"""
     if answer.answered:
         st.markdown(answer.text)
         st.progress(answer.confidence)
-        st.caption(f"Answer confidence: {answer.confidence:.0%}")
-        st.markdown("**Citations**")
+        st.caption(f"回答置信度：{answer.confidence:.0%}")
+        st.markdown("**引用依据**")
         for citation in answer.citations:
             label = f"{citation.source} | {citation.chunk_id}"
             with st.expander(label):
@@ -76,7 +73,7 @@ def render_answer(answer: Answer) -> None:
     else:
         st.warning(answer.text, icon="🛑")
         st.progress(answer.confidence)
-        st.caption(f"Best retrieval similarity: {answer.confidence:.0%}")
+        st.caption(f"最佳检索相似度：{answer.confidence:.0%}")
 
 
 if "rag_store" not in st.session_state:
@@ -88,102 +85,85 @@ if "answer_history" not in st.session_state:
 
 
 with st.sidebar:
-    st.header("Model settings")
+    st.header("模型设置")
     configured_model = os.getenv("RAG_MODEL", "").strip()
-    prefer_anthropic = (
-        configured_model.startswith("anthropic:")
-        if configured_model
-        else bool(os.getenv("ANTHROPIC_API_KEY")) and not os.getenv("OPENAI_API_KEY")
-    )
-    provider = st.selectbox(
-        "Answer provider",
-        ["OpenAI", "Anthropic"],
-        index=1 if prefer_anthropic else 0,
-    )
-    key_name = "OPENAI_API_KEY" if provider == "OpenAI" else "ANTHROPIC_API_KEY"
-    if os.getenv(key_name):
-        st.success(f"{key_name} loaded", icon="🔑")
+    if os.getenv("DEEPSEEK_API_KEY"):
+        st.success("已加载 DEEPSEEK_API_KEY", icon="🔑")
     else:
-        st.warning(f"Set {key_name} in .env before asking a question.")
+        st.warning("提问前请在 .env 中配置 DEEPSEEK_API_KEY。")
 
-    configured_matches_provider = configured_model.startswith(provider.casefold())
     model_name = st.text_input(
-        "Pydantic AI model",
-        value=(
-            configured_model
-            if configured_matches_provider
-            else model_for_provider(provider)
-        ),
-        key=f"model-name-{provider.casefold()}",
-        help="Use the provider:model format accepted by Pydantic AI.",
+        "Pydantic AI 模型",
+        value=configured_model or default_deepseek_model_name(),
+        help="默认使用 deepseek:deepseek-chat，也可以填其他 Pydantic AI 模型字符串。",
     )
     embedding_mode = st.selectbox(
-        "Embeddings",
-        ["Auto", "OpenAI", "Local hashing"],
-        help="Auto uses OpenAI when its key is set, otherwise a local lexical fallback.",
+        "Embedding 模式",
+        ["本地哈希"],
+        help="DeepSeek 只负责生成回答；本 demo 的检索向量使用本地词法哈希。",
     )
     min_relevance = st.slider(
-        "Refusal threshold",
+        "拒答阈值",
         min_value=0.05,
         max_value=0.60,
         value=0.20,
         step=0.01,
-        help="Questions below this retrieval score are refused before an LLM call.",
+        help="低于该检索分数的问题会在调用 LLM 前直接拒答。",
     )
 
     st.divider()
     if st.session_state.rag_store is not None:
         store = st.session_state.rag_store
-        st.metric("Indexed chunks", store.count)
-        st.caption(f"Embeddings: {store.embedding_backend.name}")
-        if st.button("Clear knowledge base", use_container_width=True):
+        st.metric("已索引分块", store.count)
+        st.caption(f"Embedding：{store.embedding_backend.name}")
+        if st.button("清空知识库", use_container_width=True):
             st.session_state.rag_store = None
             st.session_state.indexed_sources = []
             st.session_state.answer_history = []
             st.rerun()
 
 
-st.title("📎 Typed Agentic RAG")
+st.title("📎 类型化 Agentic RAG")
 st.write(
-    "Upload evidence, ask a question, and get a validated answer with exact quotes. "
-    "Weak retrieval produces a refusal instead of a guess."
+    "上传证据资料后提问，系统会返回经过类型校验、带原文引用的答案。"
+    "如果检索证据不足，应用会拒答，而不是让模型猜测。"
 )
 
 source_column, status_column = st.columns([3, 2])
 with source_column:
-    st.subheader("1. Add sources")
+    st.subheader("1. 添加资料")
     uploaded_files = st.file_uploader(
-        "PDF documents",
+        "PDF 文档",
         type=["pdf"],
         accept_multiple_files=True,
     )
     docs_url = st.text_input(
-        "Documentation URL",
+        "文档 URL",
         placeholder="https://example.com/docs",
-        help="Optional. HTML and plain-text pages up to 2 MB are supported.",
+        help="可选。支持 2 MB 以内的 HTML 和纯文本页面。",
     ).strip()
     build_clicked = st.button(
-        "Build knowledge base",
+        "构建知识库",
         type="primary",
         disabled=not uploaded_files and not docs_url,
     )
 
 with status_column:
-    st.subheader("Index status")
+    st.subheader("索引状态")
     if st.session_state.indexed_sources:
         for source, chunks in st.session_state.indexed_sources:
-            st.success(f"{source}: {chunks} chunks", icon="✅")
+            st.success(f"{source}: {chunks} 个分块", icon="✅")
     else:
-        st.info("Add at least one PDF or docs URL to begin.")
+        st.info("请至少添加一个 PDF 或文档 URL。")
 
 if build_clicked:
-    with st.spinner("Extracting, chunking, and embedding sources..."):
+    with st.spinner("正在抽取文本、分块并生成 Embeddings..."):
         try:
             store, indexed_sources = run_async(
                 build_knowledge_base(uploaded_files or [], docs_url, embedding_mode)
             )
         except Exception as exc:
-            st.error(f"Could not build the knowledge base: {exc}")
+            st.error(f"无法构建知识库：{exc}")
         else:
             st.session_state.rag_store = store
             st.session_state.indexed_sources = indexed_sources
@@ -191,7 +171,7 @@ if build_clicked:
             st.rerun()
 
 st.divider()
-st.subheader("2. Ask the indexed sources")
+st.subheader("2. 向已索引资料提问")
 
 for item in st.session_state.answer_history:
     with st.chat_message("user"):
@@ -200,26 +180,26 @@ for item in st.session_state.answer_history:
         render_answer(Answer.model_validate(item["answer"]))
 
 question = st.chat_input(
-    "Ask a question about the indexed sources",
+    "针对已索引资料提问",
     disabled=st.session_state.rag_store is None,
 )
 if question:
-    if not os.getenv(key_name):
-        st.error(f"Set {key_name} before asking a question.")
+    if not os.getenv("DEEPSEEK_API_KEY"):
+        st.error("提问前请先配置 DEEPSEEK_API_KEY。")
     else:
         deps = RagDependencies(
             store=st.session_state.rag_store,
             min_relevance=min_relevance,
             top_k=4,
         )
-        with st.spinner("Retrieving evidence and validating the answer..."):
+        with st.spinner("正在检索证据并校验回答..."):
             try:
-                selected_model = model_name.strip() or model_for_provider(provider)
+                selected_model = model_name.strip() or default_deepseek_model_name()
                 answer = run_async(
                     answer_question(question, deps, model=selected_model)
                 )
             except Exception as exc:
-                st.error(f"The agent could not answer: {exc}")
+                st.error(f"Agent 无法回答：{exc}")
             else:
                 st.session_state.answer_history.append(
                     {"question": question, "answer": answer.model_dump()}

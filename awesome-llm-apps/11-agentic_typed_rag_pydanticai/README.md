@@ -1,99 +1,79 @@
-# Typed Agentic RAG with Pydantic AI
+# 使用 Pydantic AI 构建类型化 Agentic RAG
 
-This Streamlit app answers questions from uploaded PDFs or a documentation URL.
-Every response is a validated `Answer` object with exact source quotes, chunk IDs,
-a confidence score, and an `answered` decision. If retrieval is too weak, the app
-refuses before calling the language model.
+这个 Streamlit 应用可以基于上传的 PDF 或文档 URL 回答问题。每次回答都会被校验为一个 `Answer` 对象，包含精确原文引用、分块 ID、置信度和 `answered` 判断。如果检索证据不足，应用会在调用语言模型前直接拒答。
 
-![Typed Agentic RAG screenshot placeholder](assets/screenshot-placeholder.svg)
+![类型化 Agentic RAG 截图占位图](assets/screenshot-placeholder.svg)
 
-## Features
+## 功能
 
-- Pydantic AI `Agent`, `RunContext`, and dependency injection
-- A typed `retrieve` tool with source metadata and cosine scores
-- Pydantic models for answers, citations, and retrieval evidence
-- Exact quote checks against indexed chunks after model output validation
-- A deterministic refusal gate for out-of-corpus questions
-- OpenAI or Anthropic answer models
-- OpenAI embeddings with a local hashing fallback for Anthropic-only setups
-- A session-scoped NumPy vector store with no database service
+- 使用 Pydantic AI `Agent`、`RunContext` 和依赖注入。
+- 提供类型化 `retrieve` 工具，返回来源元数据和余弦相似度。
+- 用 Pydantic models 定义回答、引用和检索证据。
+- 模型输出后继续检查引用是否真的来自已索引分块。
+- 对资料库外问题使用确定性拒答门禁。
+- 使用 DeepSeek 作为回答模型，和本仓库前面项目保持一致。
+- 使用本地哈希 Embeddings，避免额外要求其他模型服务 key。
+- 使用会话级 NumPy 内存向量库，不依赖数据库服务。
 
-## How it works
+## 工作方式
 
-1. `rag.py` extracts PDF or web text, splits it into overlapping chunks, embeds
-   the chunks, and stores normalized vectors in memory.
-2. `agent.py` injects the vector store through `RagDependencies`. The Pydantic AI
-   agent must call the typed `retrieve` tool before producing an `Answer`.
-3. A preflight search compares the best cosine score with the refusal threshold.
-   Low scores return `answered=False` without an LLM request.
-4. For an answered response, each citation must match a stored source, chunk ID,
-   and verbatim quoted span. An invalid or missing citation becomes a refusal.
-5. `app.py` renders the answer, confidence, citations, or refusal state.
+1. `rag.py` 从 PDF 或网页中抽取文本，切成带重叠的分块，生成 embeddings，并把归一化向量存入内存。
+2. `agent.py` 通过 `RagDependencies` 注入向量库。Pydantic AI Agent 必须先调用类型化 `retrieve` 工具，才能生成 `Answer`。
+3. 预检索会把最高余弦分数和拒答阈值比较。分数太低时，直接返回 `answered=False`，不发起 LLM 请求。
+4. 对于已回答结果，每个 citation 都必须匹配已存储的 source、chunk ID 和原文引用片段。引用无效或缺失时，结果会被改为拒答。
+5. `app.py` 负责渲染答案、置信度、引用依据或拒答状态。
 
-When `OPENAI_API_KEY` is available, Auto mode uses Pydantic AI's OpenAI
-`Embedder` with `text-embedding-3-small`. With only `ANTHROPIC_API_KEY`, Auto mode
-uses the local hashing backend because Anthropic has no embeddings API. The local
-backend is best for keyword-oriented demos. Select OpenAI embeddings for semantic
-retrieval across paraphrases.
+本 demo 的回答模型使用 Pydantic AI 的 DeepSeek provider，默认模型字符串是 `deepseek:deepseek-chat`。检索向量使用本地哈希后端，适合关键词导向的教学 demo；这样只需要配置 DeepSeek key。
 
-## Prerequisites
+## 前置条件
 
-- Python 3.12 or newer
-- An OpenAI API key or an Anthropic API key
+- Python 3.12 或更新版本。
+- 一个 DeepSeek API key。
 
-## Setup
+## 安装
 
-From the repository root:
+从仓库根目录运行：
 
 ```bash
-cd rag_tutorials/agentic_typed_rag_pydanticai
+cd awesome-llm-apps/11-agentic_typed_rag_pydanticai
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Add one key to `.env`:
+在 `.env` 中添加 DeepSeek 配置：
 
 ```text
-OPENAI_API_KEY=your-key
+DEEPSEEK_API_KEY=你的DeepSeek API Key
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_MODEL_ID=deepseek-chat
 ```
 
-or:
+默认回答模型是 `deepseek:deepseek-chat`。你可以在侧边栏修改模型字段，也可以设置 `RAG_MODEL` 为其他 Pydantic AI 模型字符串。
 
-```text
-ANTHROPIC_API_KEY=your-key
-```
+## 运行
 
-The default answer models are `openai:gpt-5.2` and
-`anthropic:claude-sonnet-4-6`. Change the model field in the sidebar or set
-`RAG_MODEL` to another Pydantic AI model string.
-
-## Run
-
-From `rag_tutorials/agentic_typed_rag_pydanticai`:
+从 `awesome-llm-apps/11-agentic_typed_rag_pydanticai` 运行：
 
 ```bash
 streamlit run app.py
 ```
 
-Upload one or more PDFs, optionally add a docs URL, and select **Build knowledge
-base**. Ask an in-corpus question to see a cited answer. Then ask about an
-unrelated topic to see the refusal state.
+上传一个或多个 PDF，也可以额外填写文档 URL，然后点击 **构建知识库**。先问一个资料内问题，观察带引用回答；再问一个无关问题，观察拒答状态。
 
-## Tests
+## 测试
 
-The deterministic suite uses Pydantic AI's `TestModel`, so it makes no provider
-requests:
+确定性测试套件使用 Pydantic AI 的 `TestModel`，不会请求真实模型提供方：
 
 ```bash
 python3 test_typed_rag.py
 ```
 
-## Files
+## 文件
 
 ```text
-agentic_typed_rag_pydanticai/
+11-agentic_typed_rag_pydanticai/
 ├── app.py
 ├── agent.py
 ├── rag.py
@@ -103,4 +83,4 @@ agentic_typed_rag_pydanticai/
 └── assets/screenshot-placeholder.svg
 ```
 
-Licensed under Apache-2.0 as part of `awesome-llm-apps`.
+本示例作为 `awesome-llm-apps` 的一部分，遵循 Apache-2.0 许可。

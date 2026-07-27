@@ -47,10 +47,22 @@ pip install -r requirements.txt
 python hello_agent.py
 ```
 
+也可以从 `agno-demos/` 的统一脚本目录运行：
+
+```bash
+../script/run_01.sh
+```
+
 传入自定义问题：
 
 ```bash
 python hello_agent.py "用一个金融研究例子解释 Agent 和普通脚本的区别"
+```
+
+通过启动脚本传入自定义问题：
+
+```bash
+../script/run_01.sh "用一个金融研究例子解释 Agent 和普通脚本的区别"
 ```
 
 关闭流式输出：

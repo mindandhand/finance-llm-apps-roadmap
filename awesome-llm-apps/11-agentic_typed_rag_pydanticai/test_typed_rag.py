@@ -19,6 +19,7 @@ from agent import (
     Citation,
     RagDependencies,
     answer_question,
+    default_deepseek_model_name,
     rag_agent,
     resolve_model_name,
     retrieve_evidence,
@@ -160,7 +161,7 @@ class TypedRagTests(unittest.TestCase):
 
         self.assertFalse(answer.answered)
         self.assertEqual([], answer.citations)
-        self.assertIn("enough evidence", answer.text.lower())
+        self.assertIn("足够证据", answer.text)
 
     def test_agent_calls_retrieve_and_returns_typed_cited_answer(self):
         from pydantic_ai import capture_run_messages, models
@@ -254,13 +255,17 @@ class TypedRagTests(unittest.TestCase):
         self.assertFalse(answer.answered)
         self.assertEqual([], answer.citations)
 
-    def test_model_resolution_supports_both_providers(self):
-        with patch.dict(os.environ, {"OPENAI_API_KEY": "key"}, clear=True):
-            self.assertEqual("openai:gpt-5.2", resolve_model_name())
-        with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "key"}, clear=True):
-            self.assertEqual("anthropic:claude-sonnet-4-6", resolve_model_name())
-        with patch.dict(os.environ, {"RAG_MODEL": "anthropic:custom"}, clear=True):
-            self.assertEqual("anthropic:custom", resolve_model_name())
+    def test_model_resolution_uses_deepseek(self):
+        with patch.dict(os.environ, {"DEEPSEEK_API_KEY": "key"}, clear=True):
+            self.assertEqual("deepseek:deepseek-chat", resolve_model_name())
+        with patch.dict(
+            os.environ,
+            {"DEEPSEEK_MODEL_ID": "deepseek-reasoner"},
+            clear=True,
+        ):
+            self.assertEqual("deepseek:deepseek-reasoner", default_deepseek_model_name())
+        with patch.dict(os.environ, {"RAG_MODEL": "deepseek:custom"}, clear=True):
+            self.assertEqual("deepseek:custom", resolve_model_name())
 
     def test_html_to_text_ignores_scripts_and_styles(self):
         html = """

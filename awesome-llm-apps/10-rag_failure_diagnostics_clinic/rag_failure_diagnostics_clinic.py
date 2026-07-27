@@ -89,60 +89,60 @@ PATTERNS = [
 ]
 
 
-EXAMPLE_1 = """=== Example 1 — retrieval hallucination (P01 style) ===
+EXAMPLE_1 = """=== 示例 1：检索幻觉（P01 风格） ===
 
-Context:
-You have a simple RAG chatbot that answers questions from a product FAQ.
-The FAQ only covers billing rules for your SaaS product and does NOT mention anything about cryptocurrency.
+背景：
+你有一个简单的 RAG 聊天机器人，用来基于产品 FAQ 回答用户问题。
+这份 FAQ 只覆盖 SaaS 产品的账单规则，没有任何关于加密货币的说明。
 
-User prompt:
-"Can I pay my subscription with Bitcoin?"
+用户问题：
+“我可以用比特币支付订阅费用吗？”
 
-Retrieved context (from vector store):
-- "We only accept major credit cards and PayPal."
-- "All payments are processed in USD."
+检索上下文（来自向量库）：
+- “我们只接受主流信用卡和 PayPal。”
+- “所有付款都以美元处理。”
 
-Model answer:
-"Yes, you can pay with Bitcoin. We support several cryptocurrencies through a third-party payment gateway."
+模型回答：
+“可以，你可以使用比特币付款。我们通过第三方支付网关支持多种加密货币。”
 
-Logs:
-No errors. Retrieval shows the FAQ chunks above, but the model still confidently invents Bitcoin support.
+日志：
+没有报错。检索结果显示的就是上面的 FAQ 片段，但模型仍然自信地编造了支持比特币支付。
 """
 
 
-EXAMPLE_2 = """=== Example 2 — startup ordering / dependency not ready (P10 style) ===
+EXAMPLE_2 = """=== 示例 2：启动顺序 / 依赖未就绪（P10 风格） ===
 
-Context:
-You have a RAG API with three services: api-gateway, rag-worker, and vector-db (for example Qdrant or FAISS).
-In local docker compose everything works.
+背景：
+你有一个 RAG API，由三个服务组成：api-gateway、rag-worker 和 vector-db（例如 Qdrant 或 FAISS）。
+在本地 docker compose 环境中，一切运行正常。
 
-Deployment:
-In production, services are deployed on Kubernetes.
+部署方式：
+生产环境使用 Kubernetes 部署这些服务。
 
-Symptom:
-Right after a fresh deploy, api-gateway returns 500 errors for the first few minutes.
-Logs show connection timeouts from api-gateway to vector-db.
+现象：
+每次新版本刚部署完成后的前几分钟，api-gateway 会返回 500 错误。
+日志显示 api-gateway 连接 vector-db 超时。
 
-After a few minutes, the errors disappear and the system behaves normally.
-You suspect a startup race between api-gateway and vector-db but are not sure how to fix it properly.
+几分钟后，错误会自动消失，系统恢复正常。
+你怀疑 api-gateway 和 vector-db 之间存在启动竞态，但不确定应该如何正确修复。
 """
 
 
-EXAMPLE_3 = """=== Example 3 — config or secrets drift (P11 style) ===
+EXAMPLE_3 = """=== 示例 3：配置或密钥漂移（P11 风格） ===
 
-Context:
-You added a new environment variable for the RAG pipeline: SECRET_RAG_KEY.
-This is required by middleware that signs outgoing requests to an internal search API.
+背景：
+你给 RAG 流水线新增了一个环境变量：SECRET_RAG_KEY。
+一个中间件需要使用这个密钥，对发往内部搜索 API 的请求进行签名。
 
-Local:
-On developer machines, SECRET_RAG_KEY is defined in .env and everything works.
+本地环境：
+开发者机器上的 .env 文件里配置了 SECRET_RAG_KEY，所以一切正常。
 
-Production:
-You deployed a new version but forgot to add SECRET_RAG_KEY to the production environment.
-The first requests after deploy fail with 500 errors and "missing secret" messages in the logs.
+生产环境：
+你部署了新版本，但忘记把 SECRET_RAG_KEY 添加到生产环境变量中。
+部署后的第一批请求返回 500 错误，日志中出现 “missing secret” 信息。
 
-After hot-patching the secret into production, the errors stop.
-However, similar "first deploy breaks because of missing config" incidents keep happening.
+临时把密钥补到生产环境后，错误停止。
+但是，类似“首次部署因为缺少配置而失败”的事故仍然反复发生。
 """
 
 
@@ -304,7 +304,7 @@ def run_once(api_key: str, base_url: str, model_name: str, system_prompt: str) -
 
     try:
         with open("rag_failure_report.json", "w", encoding="utf-8") as f:
-            json.dump(report, f, indent=2)
+            json.dump(report, f, ensure_ascii=False, indent=2)
         print("\n诊断报告已保存到 rag_failure_report.json\n")
     except OSError as exc:
         print(f"\n无法写入报告文件：{exc}\n")

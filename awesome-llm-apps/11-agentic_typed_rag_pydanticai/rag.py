@@ -6,7 +6,6 @@ import hashlib
 import io
 import ipaddress
 import math
-import os
 import re
 import socket
 from dataclasses import dataclass
@@ -237,9 +236,7 @@ class OpenAIEmbeddingBackend:
 
 
 def default_embedding_backend() -> EmbeddingBackend:
-    """Use hosted embeddings when possible, otherwise stay fully local."""
-    if os.getenv("OPENAI_API_KEY"):
-        return OpenAIEmbeddingBackend()
+    """默认使用本地哈希 embedding，避免额外模型服务 key。"""
     return HashingEmbeddingBackend()
 
 
