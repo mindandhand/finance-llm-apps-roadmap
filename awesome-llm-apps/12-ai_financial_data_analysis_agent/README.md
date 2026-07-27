@@ -5,15 +5,25 @@
 ### 快速开始
 
 ```bash
-cd 12-ai_financial_data_analysis_agent
+cd awesome-llm-apps/12-ai_financial_data_analysis_agent
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
-streamlit run app.py
+python -m streamlit run app.py
 ```
 
 也可以从仓库根目录运行：
 
 ```bash
 ./scripts/run_12_agent.sh
+```
+
+启动脚本会优先使用本目录的 `.venv/bin/python`；如果还没有创建虚拟环境，则退回系统的 `python3`。
+
+如果依赖装在其他 Python 环境里，可以显式指定：
+
+```bash
+PYTHON_BIN=/path/to/python ./scripts/run_12_agent.sh
 ```
 
 需要在 `.env` 中配置：
