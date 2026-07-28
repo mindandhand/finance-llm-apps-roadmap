@@ -8,9 +8,9 @@
 
 ## 定位
 
-本目录建议作为 `awesome-llm-apps/` 的前置工程化学习线：
+本目录建议作为 `finance-llm-agent-demos/` 的前置工程化学习线：
 
-- `awesome-llm-apps/`：偏完整金融应用。
+- `finance-llm-agent-demos/`：偏完整金融应用。
 - `agent-demos/`：偏 Agent 原理、状态、工具边界和研究约束。
 - `agno-demos/`：偏 Agno 框架、AgentOS 服务化、前后端交互和产品化体验。
 
@@ -327,7 +327,7 @@ Next.js + TypeScript + Tailwind + streaming fetch / AG-UI client
 
 ## 和现有项目的衔接
 
-完成这条路径后，可以把 `awesome-llm-apps/` 里的示例逐步迁移成更统一的形态：
+完成这条路径后，可以把 `finance-llm-agent-demos/` 里的示例逐步迁移成更统一的形态：
 
 - 简单 Streamlit demo 保留为轻量体验。
 - 复杂 Agent demo 迁移到 AgentOS。
