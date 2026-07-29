@@ -1,5 +1,9 @@
 # 11：Alpha158 / Alpha360 特征集合
 
+## 学习目标
+
+完成本节后，你应该能够说明 Alpha158/Alpha360 是特征集合而不是模型，比较两者的特征维度，并知道如何把自定义表达式接入同一 Dataset 流程。成功运行时应看到两套 handler 的形状和字段预览。
+
 `Alpha158` 和 `Alpha360` 不是模型，也不是策略。它们是 Qlib 预定义的 `DataHandlerLP`，内部封装了 feature expression、label expression 和 processor 流程。
 
 ## 图结构
@@ -86,6 +90,11 @@ graph LR
 - 以为预定义特征天然有效。
 - 自定义因子不检查未来函数。
 - Processor fit 区间覆盖了测试期。
+
+## 学习检查
+
+- 记录 Alpha158 与 Alpha360 的列数和准备耗时。
+- 选一个自定义表达式，说明应在 Handler、Dataset 还是 Model 层接入。
 
 ## 下一步
 

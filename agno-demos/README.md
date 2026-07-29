@@ -53,7 +53,7 @@ AG-UI / AgentUI / 自定义前端
 | 3 | [`03-structured-output`](03-structured-output) | 结构化输出 | Pydantic schema、可解析 JSON、错误提示 | 终端 |
 | 4 | `04-agentos-basic` | AgentOS 服务化 | FastAPI app、`/docs`、本地服务启动 | Swagger / AgentOS |
 | 5 | `05-session-memory` | 会话记忆 | session、历史上下文、用户偏好 | AgentUI |
-| 6 | `06-streaming-events` | 流式交互 | token streaming、工具进度、状态事件 | AgentUI |
+| 6 | [`06-streaming-events`](06-streaming-events) | 流式交互 | token streaming、工具进度、状态事件 | AgentUI |
 | 7 | `07-human-confirmation` | 人工确认 | 高风险操作前暂停、确认、拒绝和修改 | AgentUI |
 | 8 | `08-team-research` | 多 Agent 金融研究团队 | Researcher、Analyst、Reviewer 分工 | AgentUI |
 | 9 | `09-workflow-report` | 工作流生成报告 | 固定步骤、artifact、最终报告文件 | AgentUI |

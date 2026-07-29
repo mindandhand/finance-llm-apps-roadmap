@@ -3,7 +3,17 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from qlib_demo_common import end_time, init_qlib, instruments, print_context, start_time, test_start_time, train_end_time
+from qlib_demo_common import (
+    end_time,
+    init_qlib,
+    instruments,
+    print_context,
+    start_time,
+    test_start_time,
+    train_end_time,
+    valid_end_time,
+    valid_start_time,
+)
 
 
 FEATURE_FIELDS = [
@@ -18,6 +28,7 @@ LABEL_NAMES = ["LABEL0"]
 
 
 def build_dataset():
+    """Build chronological segments; LightGBM uses valid for model selection."""
     from qlib.data.dataset import DatasetH
     from qlib.data.dataset.handler import DataHandlerLP
 
@@ -43,6 +54,7 @@ def build_dataset():
         handler=handler,
         segments={
             "train": (start_time(), train_end_time()),
+            "valid": (valid_start_time(), valid_end_time()),
             "test": (test_start_time(), end_time()),
         },
     )

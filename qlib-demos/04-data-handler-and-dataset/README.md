@@ -1,5 +1,9 @@
 # 04：Qlib DataHandlerLP 和 DatasetH
 
+## 学习目标
+
+完成本节后，你应该能够说明 DataLoader、DataHandlerLP 和 DatasetH 的职责，构造 feature/label 列组，并读取互不重叠的 train、valid、test segment。成功运行时应看到不同 data key 对应的训练表。
+
 这一节第一次把 feature、label、processor 和时间切分放进 Qlib 原生数据集对象。它是从“能读取表达式”走向“能训练模型”的关键层。
 
 ## 图结构
@@ -95,7 +99,7 @@ dataset.prepare("train", col_set=["feature", "label"], data_key=data_key)
 1. 初始化 Qlib。
 2. `QlibDataLoader` 根据 feature / label 表达式读取数据。
 3. `DataHandlerLP` 构造 raw / learn / infer 数据视图。
-4. `DatasetH` 保存 train/test 时间段。
+4. `DatasetH` 保存互不重叠的 train/valid/test 时间段。
 5. `dataset.prepare` 输出模型可用的 feature / label 表。
 
 ## 运行方式
@@ -106,9 +110,14 @@ QLIB_PROVIDER_URI=~/.qlib/qlib_data/cn_data python data_handler_and_dataset.py
 
 ## 常见坑
 
-- 把 `DK_L/DK_I` 和 `train/test` 混为一谈。
+- 把 `DK_L/DK_I` 这类数据视图和 `train/valid/test` 时间分段混为一谈。
 - label 缺失没有处理，导致训练样本异常。
 - Processor 在全样本上 fit，造成数据泄漏。
+
+## 学习检查
+
+- 分别打印 train、valid、test 的日期边界，确认没有重叠。
+- 比较 `DK_R` 与 `DK_L`，指出 Processor 改变了哪些值。
 
 ## 下一步
 

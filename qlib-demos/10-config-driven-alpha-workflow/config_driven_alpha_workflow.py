@@ -13,8 +13,6 @@ CONFIG = {
     "experiment_id": "qlib_factor_eval_001",
     "factor_expression": "$close / Ref($close, 20) - 1",
     "label_expression": "Ref($close, -5) / $close - 1",
-    "topk": 50,
-    "cost_rate": 0.001,
 }
 
 
