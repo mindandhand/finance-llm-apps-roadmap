@@ -54,12 +54,12 @@ AG-UI / AgentUI / 自定义前端
 | 4 | [`04-agentos-basic`](04-agentos-basic) | AgentOS 服务化 | FastAPI app、`/docs`、本地服务启动 | Swagger / AgentOS |
 | 5 | [`05-session-memory`](05-session-memory) | 会话记忆 | session、历史上下文、用户偏好 | AgentUI |
 | 6 | [`06-streaming-events`](06-streaming-events) | 流式交互 | token streaming、工具进度、状态事件 | AgentUI |
-| 7 | `07-human-confirmation` | 人工确认 | 高风险操作前暂停、确认、拒绝和修改 | AgentUI |
-| 8 | `08-team-research` | 多 Agent 金融研究团队 | Researcher、Analyst、Reviewer 分工 | AgentUI |
-| 9 | `09-workflow-report` | 工作流生成报告 | 固定步骤、artifact、最终报告文件 | AgentUI |
-| 10 | `10-agui-fastapi` | AG-UI 接口 | 面向前端的标准事件协议 | 自定义前端 |
-| 11 | `11-nextjs-chat-ui` | Next.js 聊天前端 | 会话列表、流式消息、工具卡片 | Web UI |
-| 12 | `12-finance-research-console` | 交互式研究台 | 表单输入、任务状态、报告预览、下载 | Web UI |
+| 7 | [`07-human-confirmation`](07-human-confirmation) | 人工确认 | 高风险操作前暂停、确认、拒绝和修改 | AgentUI |
+| 8 | [`08-team-research`](08-team-research) | 多 Agent 金融研究团队 | Researcher、Analyst、Reviewer 分工 | AgentUI |
+| 9 | [`09-workflow-report`](09-workflow-report) | 工作流生成报告 | 固定步骤、artifact、最终报告文件 | AgentUI |
+| 10 | [`10-agui-fastapi`](10-agui-fastapi) | AG-UI 接口 | 面向前端的标准事件协议 | 自定义前端 |
+| 11 | [`11-nextjs-chat-ui`](11-nextjs-chat-ui) | Next.js 聊天前端 | 会话列表、流式消息、工具卡片 | Web UI |
+| 12 | [`12-finance-research-console`](12-finance-research-console) | 交互式研究台 | 表单输入、任务状态、报告预览、下载 | Web UI |
 
 ## Agno 应用专家补充路径
 

@@ -1,0 +1,6 @@
+fastapi
+uvicorn
+pydantic
+agno
+ag-ui-protocol
+python-dotenv

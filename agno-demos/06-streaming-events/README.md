@@ -24,7 +24,7 @@ RunStarted
 
 ```bash
 cd agno-demos/06-streaming-events
-python3 -m pip install -r requirements.txt
+python -m pip install -r requirements.txt
 ```
 
 ## 配置
@@ -48,19 +48,19 @@ DEEPSEEK_MODEL_ID=deepseek-chat
 先查看不调用模型的稳定事件样例：
 
 ```bash
-python3 streaming_events_agent.py --sample-events
+python streaming_events_agent.py --sample-events
 ```
 
 运行真实 Agent：
 
 ```bash
-python3 streaming_events_agent.py
+python streaming_events_agent.py
 ```
 
 传入自定义问题：
 
 ```bash
-python3 streaming_events_agent.py "分析 SH588000 的样例波动率，并说明工具调用过程"
+python streaming_events_agent.py "分析 SH588000 的样例波动率，并说明工具调用过程"
 ```
 
 也可以从 `agno-demos/` 目录运行：
@@ -74,7 +74,7 @@ python3 streaming_events_agent.py "分析 SH588000 的样例波动率，并说�
 ## 启动 AgentOS
 
 ```bash
-python3 streaming_events_agent.py --serve
+python streaming_events_agent.py --serve
 ```
 
 默认地址：
@@ -86,8 +86,14 @@ python3 streaming_events_agent.py --serve
 也可以使用环境变量或参数修改监听地址：
 
 ```bash
-AGENT_OS_PORT=8000 python3 streaming_events_agent.py --serve
-python3 streaming_events_agent.py --serve --host 0.0.0.0 --port 8000
+AGENT_OS_PORT=8000 python streaming_events_agent.py --serve
+python streaming_events_agent.py --serve --host 0.0.0.0 --port 8000
+```
+
+如果本机 shell 配了代理而模型请求卡住，可以先在当前终端临时关闭代理：
+
+```bash
+unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY all_proxy ALL_PROXY
 ```
 
 ## 用 curl 消费 SSE

@@ -112,6 +112,7 @@ agent_os = AgentOS(
     id="streaming-events-demo",
     name="06 Streaming Events Demo",
     agents=[agent],
+    telemetry=False,
 )
 
 # `app` 是标准 FastAPI ASGI application。除了供 `agent_os.serve()` 使用，
@@ -157,21 +158,36 @@ def tool_summary(event: Any) -> dict[str, Any]:
     if tool is None:
         return {}
 
-    # Agno 当前的工具执行对象通常是 Pydantic model。exclude_none=True
-    # 可以去掉尚未产生的 result/error 等空字段，让开始事件更紧凑。
-    if hasattr(tool, "model_dump"):
-        payload = tool.model_dump(exclude_none=True)
     # 兼容测试样例或调用方自己构造的 dict 事件。
-    elif isinstance(tool, dict):
+    if isinstance(tool, dict):
         payload = tool
+    # Agno 当前的工具执行对象通常提供 model_dump，但不同版本返回值形态
+    # 不完全一致；只有拿到普通 dict 时才直接使用。
+    elif hasattr(tool, "model_dump"):
+        dumped = tool.model_dump(exclude_none=True)
+        if isinstance(dumped, dict):
+            payload = dumped
+        else:
+            payload = {}
     # 最后的兜底主要用于调试：即使遇到未知对象，也不要让事件打印器崩溃。
     else:
+        payload = {}
+
+    # 对真实 Agno ToolExecution 对象，直接读取属性是最稳定的展示方式。
+    # 这同时弥补 model_dump 不可用或返回非 dict 时导致工具摘要为空的问题。
+    for key in ("tool_call_id", "tool_name", "tool_args", "result", "tool_call_error"):
+        if key not in payload and hasattr(tool, key):
+            value = getattr(tool, key)
+            if value is not None:
+                payload[key] = value
+
+    if not payload:
         payload = {"value": str(tool)}
 
     # 使用白名单而不是复制 payload，明确终端/前端输出的数据边界。
     return {
         key: payload[key]
-        for key in ("tool_name", "tool_args", "result", "tool_call_error")
+        for key in ("tool_call_id", "tool_name", "tool_args", "result", "tool_call_error")
         if key in payload
     }
 

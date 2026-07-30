@@ -184,15 +184,33 @@ def resolve_db_file() -> Path:
 def build_db(db_file: Path | None = None) -> SqliteDb:
     """创建 Agno SQLite db。
 
-    只要把同一个 db 同时传给 Agent 和 AgentOS：
-    - Agent 可以保存 runs，并在后续调用中读取同一 session 的历史。
-    - AgentOS 可以启用 /sessions、/memories、/metrics 等内置路由。
+    Agno 保存 session 不是“只配置表名”这么简单，而是三件事一起成立：
+
+    1. SqliteDb(...) 决定 SQLite 文件位置和表名。
+    2. Agent(db=db) 决定 Agent run 会写入这个 db，并可读取历史。
+    3. AgentOS(db=db) 决定 /sessions、/memories、/metrics 等内置路由
+       可以从同一个 db 读取数据。
+
+    对 session 来说，最关键的是 session_table。Agno 的 session 表大致包含：
+    session_id、session_type、agent_id、user_id、session_data、agent_data、
+    metadata、runs、summary、created_at、updated_at。
+
+    其中 runs 是 JSON 字段，会保存每轮 run 的输入、输出、工具调用、
+    messages 和 token metrics。也就是说，Agno 不是把每条 message 单独
+    存成一张 messages 表，而是把一个 session 下的 runs 聚合保存在
+    session 记录里。
     """
     path = db_file or resolve_db_file()
     return SqliteDb(
+        # db_file 是实际落盘位置。第一次运行时 Agno/SQLAlchemy 会自动创建目录
+        # 和 SQLite 文件；05-session-memory/data/.gitignore 会避免把本地会话库提交。
         db_file=str(path),
         id="finance-session-sqlite",
+        # session_table 是 05 最重要的表。它保存 Agent/Team/Workflow 的 session
+        # 摘要和 runs JSON；/sessions 路由读的就是这张表。
         session_table="demo_05_sessions",
+        # 以下表让 AgentOS 的内置路由更完整。05 的核心只依赖 session_table，
+        # 但配置这些表后，/memories、/metrics、/approvals 等路由不再是 disabled。
         memory_table="demo_05_memories",
         metrics_table="demo_05_metrics",
         eval_table="demo_05_eval_runs",
@@ -224,6 +242,9 @@ def build_agent(db: SqliteDb) -> Agent:
         id=AGENT_ID,
         name="Finance Session Agent",
         model=DeepSeek(id=model_id, api_key=api_key, base_url=base_url),
+        # 这一行决定 Agent 自己的 run/session 写入哪里。
+        # 如果只把 db 传给 AgentOS，而不传给 Agent，Agent 就不能在运行时
+        # 保存 runs，也无法在续问时读取历史上下文。
         db=db,
         tools=[
             get_market_snapshot,
@@ -235,14 +256,31 @@ def build_agent(db: SqliteDb) -> Agent:
             "Use tools for market data, news, and factor facts.",
             "When the user asks a follow-up, use the session history if relevant.",
             "Return only information supported by tool results or prior session context.",
+            "For volatility, only use the 60d_volatility factor returned by get_factor_summary.",
+            "Do not invent other horizons such as 30-day volatility unless a tool returned them.",
+            "Every response, including follow-ups, must be a complete ResearchBrief JSON object.",
+            "Do not return blank text, prose-only text, markdown fences, or partial JSON.",
             "Do not provide personalized investment advice.",
         ],
+        expected_output=(
+            "A valid ResearchBrief JSON object with question, as_of, summary, "
+            "assessments, comparison, caveats, and next_questions. "
+            "Start with { and end with }."
+        ),
         output_schema=ResearchBrief,
         structured_outputs=False,
         parse_response=True,
         markdown=False,
+        # add_history_to_context=True 是“续问能看到刚才内容”的关键。
+        # 调用 /agents/{agent_id}/runs 时，如果传入相同 session_id，
+        # Agno 会从 session_table 中读取这个 session 的历史 runs，
+        # 并把最近历史消息加入本次模型上下文。
         add_history_to_context=True,
+        # 只取最近 3 轮，避免把完整历史无限塞进 prompt。
+        # 真实应用通常还会配合 summary 或长期 memory 做压缩。
         num_history_runs=3,
+        # 保存更完整的 messages，便于通过 /sessions 或数据库复盘：
+        # 用户输入、模型输出、工具调用、工具结果、from_history 标记等。
         store_history_messages=True,
         debug_mode=os.getenv("AGNO_DEBUG", "").lower() in {"1", "true", "yes"},
     )
@@ -256,6 +294,11 @@ def build_agent_os(db_file: Path | None = None) -> AgentOS:
         name="Finance Session Memory",
         description="An AgentOS service with SQLite sessions and history context.",
         version="0.1.0",
+        # 这一行决定 AgentOS 的内置 HTTP 路由使用哪个数据库。
+        # 例如 GET /sessions 会读取 demo_05_sessions，
+        # POST /memories 会写入 demo_05_memories。
+        # 它和 Agent(db=db) 必须指向同一个 db，服务路由和 Agent 运行时
+        # 才会看到同一批 session/run 数据。
         db=db,
         agents=[build_agent(db)],
         telemetry=False,

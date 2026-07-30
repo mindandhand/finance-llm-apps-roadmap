@@ -1,0 +1,5 @@
+agno
+fastapi
+uvicorn
+python-dotenv
+pydantic

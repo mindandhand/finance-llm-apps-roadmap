@@ -1,0 +1,4 @@
+agno
+fastapi
+uvicorn
+python-dotenv

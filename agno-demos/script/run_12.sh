@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-DEMO_DIR="$SCRIPT_DIR/../06-streaming-events"
+DEMO_DIR="$SCRIPT_DIR/../12-finance-research-console"
 
 cd "$DEMO_DIR"
-python streaming_events_agent.py "$@"
+python research_console.py "$@"
