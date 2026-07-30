@@ -7,7 +7,7 @@
 2. 每个结论都能追溯到来源文档和原文片段。
 3. 展示推理路径，便于审查答案是怎么来的。
 
-本 demo 使用 Ollama 做本地 LLM 推理，使用 Neo4j 存储知识图谱。
+本 demo 使用 DeepSeek 远端模型做 LLM 推理，使用 Neo4j 存储知识图谱。
 """
 
 from dataclasses import dataclass
@@ -17,13 +17,60 @@ import os
 import re
 from typing import Dict, List, Tuple
 
+import requests
 import streamlit as st
 from neo4j import GraphDatabase
-from ollama import Client as OllamaClient
+from dotenv import load_dotenv
 
-# Podman Compose 中 Ollama 通常是 http://ollama:11434；本地运行默认 localhost。
-OLLAMA_HOST = os.environ.get('OLLAMA_HOST', 'http://localhost:11434')
-ollama_client = OllamaClient(host=OLLAMA_HOST)
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
+for env_path in (
+    os.path.join(APP_DIR, ".env"),
+    os.path.join(os.path.dirname(APP_DIR), ".env"),
+    os.path.join(os.path.dirname(os.path.dirname(APP_DIR)), ".env"),
+):
+    load_dotenv(env_path)
+
+DEEPSEEK_BASE_URL = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/")
+
+
+def call_remote_model(prompt: str, model: str) -> str:
+    """调用远端 OpenAI-compatible chat completions 接口。"""
+    api_key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("未找到 DEEPSEEK_API_KEY，请在 .env 或环境变量中配置。")
+
+    response = requests.post(
+        f"{DEEPSEEK_BASE_URL}/chat/completions",
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.1,
+        },
+        timeout=120,
+    )
+    if response.status_code >= 400:
+        raise RuntimeError(
+            f"远端模型请求失败（HTTP {response.status_code}）：{response.text[:300]}"
+        )
+
+    data = response.json()
+    try:
+        return data["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError) as exc:
+        raise RuntimeError("远端模型返回格式不符合 chat completions 规范。") from exc
+
+
+def parse_json_response(content: str) -> Dict:
+    """解析模型输出的 JSON，兼容 Markdown code fence 包裹的情况。"""
+    cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", content.strip(), flags=re.I | re.S)
+    start, end = cleaned.find("{"), cleaned.rfind("}")
+    if start == -1 or end == -1:
+        raise ValueError("远端模型没有返回有效 JSON。")
+    return json.loads(cleaned[start : end + 1])
 
 
 # ============================================================================
@@ -144,22 +191,34 @@ class KnowledgeGraphManager:
             return [dict(record) for record in result]
     
     def semantic_search(self, query: str) -> List[Dict]:
-        """根据问题做简单文本匹配，找到候选起点实体。"""
+        """根据问题关键词做简单文本匹配，找到候选起点实体。"""
+        # 问句通常比实体名称长，不能把整句直接作为 CONTAINS 的匹配值。
+        # 同时保留英文、数字和连续中文片段，覆盖 GraphRAG 这类实体名称。
+        terms = re.findall(r"[A-Za-z0-9_]+|[\u4e00-\u9fff]{2,}", query)
+        terms = list(dict.fromkeys(term for term in terms if len(term.strip()) >= 2))
+        if not terms:
+            terms = [query.strip()]
+
         with self.driver.session() as session:
             # 教学 demo 使用文本匹配；生产系统通常会接向量索引或全文索引。
             result = session.run(
                 """
                 MATCH (e:Entity)
-                WHERE e.name CONTAINS $query 
-                   OR e.description CONTAINS $query
+                WITH e,
+                     [term IN $terms WHERE
+                        toLower(e.name) CONTAINS toLower(term)
+                        OR toLower(e.description) CONTAINS toLower(term)] AS hits
+                WHERE size(hits) > 0
                 RETURN e.name as name,
                        e.description as description,
                        e.source_doc as source,
                        e.source_chunk as chunk,
-                       e.type as type
+                       e.type as type,
+                       size(hits) as score
+                ORDER BY score DESC
                 LIMIT 10
                 """,
-                query=query
+                {"terms": terms}
             )
             return [dict(record) for record in result]
 
@@ -168,8 +227,8 @@ class KnowledgeGraphManager:
 # 基于 LLM 的实体抽取
 # ============================================================================
 
-def extract_entities_with_llm(text: str, source_doc: str, model: str = "llama3.2") -> Tuple[List[Entity], List[Relationship]]:
-    """使用本地 LLM 从文本中抽取实体和关系。"""
+def extract_entities_with_llm(text: str, source_doc: str, model: str = "deepseek-chat") -> Tuple[List[Entity], List[Relationship]]:
+    """使用远端模型从文本中抽取实体和关系。"""
     
     extraction_prompt = f"""请分析下面的文本，并抽取：
 1. 关键实体（人物、组织、概念、技术、事件、地点）
@@ -201,13 +260,7 @@ def extract_entities_with_llm(text: str, source_doc: str, model: str = "llama3.2
 """
     
     try:
-        response = ollama_client.chat(
-            model=model,
-            messages=[{"role": "user", "content": extraction_prompt}],
-            format="json"
-        )
-        
-        data = json.loads(response['message']['content'])
+        data = parse_json_response(call_remote_model(extraction_prompt, model))
         
         entities = []
         for e in data.get('entities', []):
@@ -245,7 +298,7 @@ def extract_entities_with_llm(text: str, source_doc: str, model: str = "llama3.2
 def generate_answer_with_citations(
     query: str,
     graph: KnowledgeGraphManager,
-    model: str = "llama3.2"
+    model: str = "deepseek-chat"
 ) -> AnswerWithCitations:
     """
     使用多跳图遍历生成带引用答案。
@@ -271,11 +324,18 @@ def generate_answer_with_citations(
     
     # 第 2 步：从起点实体做多跳扩展。
     all_context = []
+    seen_context = set()
     for entity in initial_results[:3]:
         reasoning_trace.append(f"🔗 从实体扩展：{entity['name']}")
         related = graph.find_related_entities(entity['name'], hops=2)
         
         for rel in related:
+            # 同一实体可能通过多条路径返回；相同来源的重复记录只保留一次。
+            context_key = (rel['name'], rel['source'], rel['chunk'])
+            if context_key in seen_context:
+                continue
+            seen_context.add(context_key)
+
             all_context.append({
                 "entity": rel['name'],
                 "description": rel['description'],
@@ -314,11 +374,7 @@ def generate_answer_with_citations(
 """
     
     try:
-        response = ollama_client.chat(
-            model=model,
-            messages=[{"role": "user", "content": answer_prompt}]
-        )
-        answer = response['message']['content']
+        answer = call_remote_model(answer_prompt, model)
         reasoning_trace.append("✅ 已生成带引用答案")
         
         # 第 5 步：从回答中抽取引用编号，并映射回来源文本。
@@ -379,7 +435,10 @@ def main():
     neo4j_uri = st.sidebar.text_input("Neo4j URI", "bolt://localhost:7687")
     neo4j_user = st.sidebar.text_input("Neo4j 用户名", "neo4j")
     neo4j_password = st.sidebar.text_input("Neo4j 密码", type="password", value="password")
-    llm_model = st.sidebar.selectbox("Ollama 模型", ["llama3.2", "mistral", "phi3"])
+    llm_model = st.sidebar.text_input(
+        "远端模型",
+        os.environ.get("DEEPSEEK_MODEL_ID", "deepseek-chat"),
+    )
     
     # 初始化会话状态。Streamlit 每次交互都会重跑脚本，所以状态需要放在 session_state。
     if 'graph_initialized' not in st.session_state:
@@ -441,7 +500,7 @@ def main():
                     
                 except Exception as e:
                     st.error(f"错误：{e}")
-                    st.info("请确认 Neo4j 正在运行，并且 Ollama 已经拉取所选模型。")
+                    st.info("请确认 Neo4j 正在运行，并且 DEEPSEEK_API_KEY 已正确配置。")
     
     with tab2:
         st.header("第 2 步：提出问题并查看可验证答案")

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_DIR="$(cd "$(dirname "$0")/../15-finance_mcp_agent_router" && pwd)"
+APP_DIR="$(cd "$(dirname "$0")/../14-browser_mcp_agent" && pwd)"
 PYTHON_BIN="${PYTHON_BIN:-$APP_DIR/.venv/bin/python}"
 PORT="${PORT:-8501}"
 
@@ -13,9 +13,16 @@ if [[ ! -x "$PYTHON_BIN" ]]; then
   fi
 fi
 
+for command_name in node npm; do
+  if ! command -v "$command_name" >/dev/null 2>&1; then
+    echo "未找到 $command_name，请先安装 Node.js。" >&2
+    exit 1
+  fi
+done
+
 "$PYTHON_BIN" - <<'PY'
 missing = []
-for package in ("streamlit", "agno", "yfinance", "ddgs", "dotenv"):
+for package in ("streamlit", "mcp_agent", "dotenv"):
     try:
         __import__(package)
     except ModuleNotFoundError:
@@ -29,4 +36,6 @@ if missing:
 PY
 
 cd "$APP_DIR"
-exec "$PYTHON_BIN" -m streamlit run app.py --server.port "$PORT"
+exec env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY \
+  -u all_proxy -u ALL_PROXY \
+  "$PYTHON_BIN" -m streamlit run main.py --server.port "$PORT"

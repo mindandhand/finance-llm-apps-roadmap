@@ -15,7 +15,7 @@ fi
 cd "$APP_DIR"
 "$PYTHON_BIN" - <<'PY'
 missing = []
-for package in ("streamlit", "neo4j", "ollama"):
+for package in ("streamlit", "neo4j", "requests", "dotenv"):
     try:
         __import__(package)
     except ModuleNotFoundError:

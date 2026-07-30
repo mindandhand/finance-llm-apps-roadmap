@@ -2,6 +2,20 @@ import asyncio
 import os
 import streamlit as st
 from textwrap import dedent
+from dotenv import load_dotenv
+
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
+for env_path in (
+    os.path.join(APP_DIR, ".env"),
+    os.path.join(os.path.dirname(APP_DIR), ".env"),
+    os.path.join(os.path.dirname(os.path.dirname(APP_DIR)), ".env"),
+):
+    load_dotenv(env_path)
+
+# mcp-agent 的 OpenAI workflow 会读取 OPENAI_API_KEY。
+# 项目统一使用 DEEPSEEK_API_KEY，因此只在未设置 OPENAI_API_KEY 时做兼容映射。
+if os.getenv("DEEPSEEK_API_KEY") and not os.getenv("OPENAI_API_KEY"):
+    os.environ["OPENAI_API_KEY"] = os.environ["DEEPSEEK_API_KEY"]
 
 from mcp_agent.app import MCPApp
 from mcp_agent.agents.agent import Agent
@@ -9,33 +23,35 @@ from mcp_agent.workflows.llm.augmented_llm_openai import OpenAIAugmentedLLM
 from mcp_agent.workflows.llm.augmented_llm import RequestParams
 
 # Page config
-st.set_page_config(page_title="Browser MCP Agent", page_icon="🌐", layout="wide")
+st.set_page_config(page_title="浏览器 MCP Agent", page_icon="🌐", layout="wide")
 
 # Title and description
-st.markdown("<h1 class='main-header'>🌐 Browser MCP Agent</h1>", unsafe_allow_html=True)
-st.markdown("Interact with a powerful web browsing agent that can navigate and interact with websites")
+st.markdown("<h1 class='main-header'>🌐 浏览器 MCP Agent</h1>", unsafe_allow_html=True)
+st.markdown("使用自然语言控制浏览器访问网页、点击元素、滚动页面并提取内容。")
 
 # Setup sidebar with example commands
 with st.sidebar:
-    st.markdown("### Example Commands")
+    st.markdown("### 示例指令")
     
-    st.markdown("**Navigation**")
-    st.markdown("- Go to github.com/Shubhamsaboo/awesome-llm-apps")
+    st.markdown("**导航**")
+    st.markdown("- 打开 github.com/Shubhamsaboo/awesome-llm-apps")
     
-    st.markdown("**Interactions**")
-    st.markdown("- click on mcp_ai_agents")
-    st.markdown("- Scroll down to view more content")
+    st.markdown("**交互**")
+    st.markdown("- 点击页面中的 mcp_ai_agents")
+    st.markdown("- 向下滚动查看更多内容")
     
-    st.markdown("**Multi-step Tasks**")
-    st.markdown("- Navigate to github.com/Shubhamsaboo/awesome-llm-apps, scroll down, and report details")
-    st.markdown("- Scroll down and summarize the github readme")
+    st.markdown("**多步骤任务**")
+    st.markdown("- 打开 github.com/Shubhamsaboo/awesome-llm-apps，向下滚动并汇报页面信息")
+    st.markdown("- 向下滚动并总结 GitHub README")
     
     st.markdown("---")
-    st.caption("Note: The agent uses Playwright to control a real browser.")
+    st.caption("Agent 通过 Playwright 控制真实浏览器。")
 
 # Query input
-query = st.text_area("Your Command", 
-                   placeholder="Ask the agent to navigate to websites and interact with them")
+query = st.text_area(
+    "浏览器指令",
+    placeholder="例如：打开一个网页，向下滚动，提取页面主要内容并总结。",
+)
 
 # Initialize app and agent
 if 'initialized' not in st.session_state:
@@ -88,17 +104,12 @@ async def setup_agent():
 
 # Main function to run agent
 async def run_mcp_agent(message):
-    # Credentials come from mcp_agent.secrets.yaml (api_key) and
-    # mcp_agent.config.yaml (base_url, default_model). Both OpenAI and any
-    # OpenAI-compatible server (e.g. Ollama at http://localhost:11434/v1)
-    # are supported via the same `openai:` config section — see README.
-    if not os.getenv("OPENAI_API_KEY") and not os.path.exists(
+    if not os.getenv("DEEPSEEK_API_KEY") and not os.path.exists(
         os.path.join(os.path.dirname(__file__), "mcp_agent.secrets.yaml")
     ):
         return (
-            "Error: no LLM credentials found. Either set OPENAI_API_KEY in "
-            "your environment, or create mcp_agent.secrets.yaml from the "
-            "provided example (works for OpenAI and local Ollama)."
+            "错误：未找到 DeepSeek API Key。请配置 DEEPSEEK_API_KEY，"
+            "或从 mcp_agent.secrets.yaml.example 创建未跟踪的密钥文件。"
         )
 
     try:
@@ -115,7 +126,7 @@ async def run_mcp_agent(message):
             )
         return result
     except Exception as e:
-        return f"Error: {str(e)}"
+        return f"错误：{str(e)}"
 
 # Defaults
 if 'is_processing' not in st.session_state:
@@ -128,7 +139,7 @@ def start_run():
 
 # Button (use a callback so the click just flips state)
 st.button(
-    "🚀 Run Command",
+    "🚀 执行指令",
     type="primary",
     use_container_width=True,
     disabled=st.session_state.is_processing,
@@ -137,7 +148,7 @@ st.button(
 
 # If we’re in a processing run, do the work now
 if st.session_state.is_processing:
-    with st.spinner("Processing your request..."):
+    with st.spinner("正在执行浏览器任务..."):
         result = st.session_state.loop.run_until_complete(run_mcp_agent(query))
     # persist result across the next rerun
     st.session_state.last_result = result
@@ -147,7 +158,7 @@ if st.session_state.is_processing:
 
 # Render the most recent result (after the rerun)
 if st.session_state.last_result:
-    st.markdown("### Response")
+    st.markdown("### 执行结果")
     st.markdown(st.session_state.last_result)
 else:
     # (your existing help text here)
@@ -157,19 +168,19 @@ else:
 if 'result' not in locals():
     st.markdown(
         """<div style='padding: 20px; background-color: #f0f2f6; border-radius: 10px;'>
-        <h4>How to use this app:</h4>
+        <h4>使用步骤</h4>
         <ol>
-            <li>Enter your OpenAI API key in your mcp_agent.secrets.yaml file</li>
-            <li>Type a command for the agent to navigate and interact with websites</li>
-            <li>Click 'Run Command' to see results</li>
+            <li>配置 DEEPSEEK_API_KEY 或 mcp_agent.secrets.yaml</li>
+            <li>输入浏览器导航和交互指令</li>
+            <li>点击“执行指令”查看结果</li>
         </ol>
-        <p><strong>Capabilities:</strong></p>
+        <p><strong>支持能力：</strong></p>
         <ul>
-            <li>Navigate to websites using Playwright</li>
-            <li>Click on elements, scroll, and type text</li>
-            <li>Take screenshots of specific elements</li>
-            <li>Extract information from web pages</li>
-            <li>Perform multi-step browsing tasks</li>
+            <li>使用 Playwright 打开网页</li>
+            <li>点击元素、滚动页面并输入文本</li>
+            <li>截取指定页面区域</li>
+            <li>提取网页信息</li>
+            <li>执行多步骤浏览任务</li>
         </ul>
         </div>""", 
         unsafe_allow_html=True
@@ -177,4 +188,4 @@ if 'result' not in locals():
 
 # Footer
 st.markdown("---")
-st.write("Built with Streamlit, Playwright, and [MCP-Agent](https://www.github.com/lastmile-ai/mcp-agent) Framework ❤️")
+st.write("基于 Streamlit、Playwright 和 [MCP-Agent](https://www.github.com/lastmile-ai/mcp-agent) 构建")

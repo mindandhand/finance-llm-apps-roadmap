@@ -17,6 +17,7 @@ for env_path in (APP_DIR / ".env", REPO_DIR / ".env", WORKSPACE_DIR / ".env"):
 
 
 def model() -> DeepSeek:
+    """创建统一的 DeepSeek 模型实例，供四类金融 Agent 复用。"""
     api_key = os.getenv("DEEPSEEK_API_KEY")
     if not api_key:
         raise RuntimeError("未找到 DEEPSEEK_API_KEY。")
@@ -28,6 +29,7 @@ def model() -> DeepSeek:
 
 
 def route_task(query: str) -> str:
+    """根据任务中的关键词选择最合适的金融工具 Agent。"""
     text = query.lower()
     if any(word in text for word in ["price", "stock", "股价", "行情", "估值", "pe", "市值"]):
         return "行情数据"
@@ -38,16 +40,17 @@ def route_task(query: str) -> str:
     return "综合报告"
 
 
-st.set_page_config(page_title="金融 MCP Agent Router", layout="wide")
-st.title("金融 MCP Agent Router")
-st.caption("本地演示 MCP 风格的金融工具路由：根据任务选择行情、新闻、风险或报告 Agent。")
+st.set_page_config(page_title="金融工具路由 Agent", layout="wide")
+st.title("金融工具路由 Agent")
+st.caption("根据任务自动选择行情、新闻、风险或综合报告 Agent。")
 
 query = st.text_area("输入任务", value="请分析 NVDA 的当前行情、最新新闻和主要风险，并给出中文报告。", height=120)
 
-if st.button("路由并执行", use_container_width=True):
+if st.button("路由并执行", use_container_width=True, type="primary"):
     with st.spinner("正在路由任务并调用对应工具 Agent..."):
         try:
             m = model()
+            # 每个 Agent 只绑定完成自身任务所需的工具，减少无关工具调用。
             agents = {
                 "行情数据": Agent(
                     name="行情数据 Agent",

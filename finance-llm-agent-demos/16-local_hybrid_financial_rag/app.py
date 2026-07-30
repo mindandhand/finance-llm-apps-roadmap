@@ -17,6 +17,7 @@ for env_path in (APP_DIR / ".env", REPO_DIR / ".env", WORKSPACE_DIR / ".env"):
 
 
 def call_deepseek(prompt: str) -> str:
+    """调用 DeepSeek，并要求模型只能使用检索到的证据回答。"""
     api_key = os.getenv("DEEPSEEK_API_KEY")
     if not api_key:
         raise RuntimeError("未找到 DEEPSEEK_API_KEY。")
@@ -40,6 +41,7 @@ def call_deepseek(prompt: str) -> str:
 
 
 def read_file(uploaded) -> str:
+    """读取上传的 PDF 或文本文件，统一返回纯文本。"""
     if uploaded.name.lower().endswith(".pdf"):
         from pypdf import PdfReader
 
@@ -53,6 +55,10 @@ def tokenize(text: str) -> list[str]:
 
 
 def chunk_text(text: str, size: int = 900, overlap: int = 160) -> list[str]:
+    """按字符切分文档，并保留相邻片段之间的少量重叠内容。"""
+    if size <= 0 or overlap < 0 or overlap >= size:
+        raise ValueError("切片参数必须满足 size > overlap >= 0。")
+
     clean = re.sub(r"\s+", " ", text).strip()
     chunks, start = [], 0
     while start < len(clean):
@@ -62,6 +68,7 @@ def chunk_text(text: str, size: int = 900, overlap: int = 160) -> list[str]:
 
 
 def score_chunks(query: str, chunks: list[str], top_k: int = 6) -> list[tuple[int, float, str]]:
+    """用轻量 BM25 风格词频分数选择最相关的文档片段。"""
     q_terms = tokenize(query)
     if not q_terms:
         return []
@@ -79,7 +86,7 @@ def score_chunks(query: str, chunks: list[str], top_k: int = 6) -> list[tuple[in
                 bm25 += counts[term] * math.log((n_docs + 1) / (df[term] + 0.5))
         length_penalty = 1 / math.sqrt(max(1, len(tokens)))
         scored.append((idx, bm25 + lexical * 0.3 + length_penalty, chunk))
-    return sorted(scored, key=lambda item: item[1], reverse=True)[:top_k]
+    return [item for item in sorted(scored, key=lambda item: item[1], reverse=True) if item[1] > 0][:top_k]
 
 
 st.set_page_config(page_title="本地混合金融 RAG", layout="wide")
@@ -97,6 +104,9 @@ if uploaded:
         with st.spinner("正在检索相关片段并生成回答..."):
             try:
                 hits = score_chunks(question, chunks)
+                if not hits:
+                    st.warning("没有找到包含问题关键词的证据片段，请换一种问法。")
+                    st.stop()
                 context = "\n\n".join(f"[片段 {idx}] {chunk}" for idx, _, chunk in hits)
                 prompt = f"""
 请只基于以下检索片段回答问题。若证据不足，请明确拒答并说明缺失信息。

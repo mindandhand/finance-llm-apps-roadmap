@@ -1,6 +1,4 @@
-import json
 import os
-import re
 from pathlib import Path
 
 import requests
@@ -13,6 +11,7 @@ for env_path in (APP_DIR / ".env", APP_DIR.parent / ".env", APP_DIR.parent.paren
 
 
 def deepseek(prompt: str) -> str:
+    """调用 DeepSeek 生成理赔文本交接包。"""
     api_key = os.getenv("DEEPSEEK_API_KEY")
     if not api_key:
         raise RuntimeError("未找到 DEEPSEEK_API_KEY。")
@@ -20,11 +19,26 @@ def deepseek(prompt: str) -> str:
     response = requests.post(
         f"{base_url}/chat/completions",
         headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        json={"model": os.getenv("DEEPSEEK_MODEL_ID", "deepseek-chat"), "messages": [{"role": "user", "content": prompt}], "temperature": 0.1, "max_tokens": 3000},
+        json={
+            "model": os.getenv("DEEPSEEK_MODEL_ID", "deepseek-chat"),
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "你是严谨的保险理赔文本整理助手，不做最终赔付决定。",
+                },
+                {"role": "user", "content": prompt},
+            ],
+            "temperature": 0.1,
+            "max_tokens": 3000,
+        },
         timeout=60,
     )
     response.raise_for_status()
-    return response.json()["choices"][0]["message"]["content"]
+    data = response.json()
+    try:
+        return data["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError) as exc:
+        raise RuntimeError("DeepSeek 返回格式不符合 chat completions 规范。") from exc
 
 
 st.set_page_config(page_title="保险理赔文本 Agent 团队", layout="wide")
@@ -32,9 +46,18 @@ st.title("保险理赔文本 Agent 团队")
 claim = st.text_area("事故/损失描述", value="昨晚暴雨后地下室进水，地板和部分家具受损，已经拍照，暂未联系维修。", height=180)
 policy = st.text_input("险种", value="家庭财产保险")
 
-if st.button("生成理赔交接包", use_container_width=True):
+if st.button("生成理赔交接包", use_container_width=True, type="primary"):
+    if not claim.strip():
+        st.error("请填写事故或损失描述。")
+        st.stop()
+    if not policy.strip():
+        st.error("请填写险种。")
+        st.stop()
+
+    st.caption("请先脱敏姓名、电话、地址、保单号和身份证件信息。")
     with st.spinner("正在抽取字段、检查缺失材料和风险信号..."):
         try:
+            # 输出面向理赔员交接，不直接给出是否赔付的结论。
             prompt = f"""
 请作为保险理赔文本 Agent 团队，基于以下描述生成理赔员交接包。
 险种：{policy}

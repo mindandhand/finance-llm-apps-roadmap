@@ -14,6 +14,7 @@ for env_path in (APP_DIR / ".env", APP_DIR.parent / ".env", APP_DIR.parent.paren
 
 
 def make_agent() -> Agent:
+    """创建负责整合行情、新闻和风险信息的研究 Agent。"""
     api_key = os.getenv("DEEPSEEK_API_KEY")
     if not api_key:
         raise RuntimeError("未找到 DEEPSEEK_API_KEY。")
@@ -24,7 +25,14 @@ def make_agent() -> Agent:
             api_key=api_key,
             base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
         ),
-        tools=[DuckDuckGoTools(), YFinanceTools(enable_stock_price=True, enable_company_info=True, enable_company_news=True)],
+        tools=[
+            DuckDuckGoTools(),
+            YFinanceTools(
+                enable_stock_price=True,
+                enable_company_info=True,
+                enable_company_news=True,
+            ),
+        ],
         instructions=[
             "所有输出必须使用中文。",
             "按研究备忘录格式输出：结论、关键事实、数据表、风险、待核验问题、下一步。",
@@ -42,9 +50,17 @@ st.caption("把公司研究、行情、新闻和风险问题整理成投研备�
 symbols = st.text_input("股票或公司", value="NVDA, MSFT")
 focus = st.text_area("研究重点", value="增长驱动、估值风险、AI 资本开支和未来 12 个月风险。", height=120)
 
-if st.button("生成研究备忘录", use_container_width=True):
+if st.button("生成研究备忘录", use_container_width=True, type="primary"):
+    if not symbols.strip():
+        st.error("请至少输入一个股票代码或公司名称。")
+        st.stop()
+    if not focus.strip():
+        st.error("请填写本次研究重点。")
+        st.stop()
+
     with st.spinner("正在整理研究备忘录..."):
         try:
+            # 研究任务同时交给行情和网页工具，模型负责整合证据，而不是凭空补充数据。
             prompt = f"研究对象：{symbols}\n研究重点：{focus}\n请生成结构化投研备忘录。"
             result = make_agent().run(prompt, stream=False)
             st.markdown(result.content if result else "暂无结果。")

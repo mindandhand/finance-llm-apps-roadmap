@@ -13,12 +13,17 @@ for env_path in (APP_DIR / ".env", APP_DIR.parent / ".env", APP_DIR.parent.paren
 
 
 def agent() -> Agent:
+    """创建只读的市场事件检索 Agent。"""
     api_key = os.getenv("DEEPSEEK_API_KEY")
     if not api_key:
         raise RuntimeError("未找到 DEEPSEEK_API_KEY。")
     return Agent(
         name="市场事件 Radar Agent",
-        model=DeepSeek(id=os.getenv("DEEPSEEK_MODEL_ID", "deepseek-chat"), api_key=api_key, base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")),
+        model=DeepSeek(
+            id=os.getenv("DEEPSEEK_MODEL_ID", "deepseek-chat"),
+            api_key=api_key,
+            base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
+        ),
         tools=[DuckDuckGoTools()],
         instructions=[
             "所有输出必须使用中文。",
@@ -35,10 +40,17 @@ st.title("市场事件 Radar Agent")
 watchlist = st.text_area("关注列表", value="AAPL\nMSFT\nNVDA\nTSLA", height=160)
 window = st.selectbox("时间范围", ["最近 24 小时", "最近 7 天", "最近 30 天"], index=1)
 
-if st.button("生成事件摘要", use_container_width=True):
+if st.button("生成事件摘要", use_container_width=True, type="primary"):
+    symbols = list(dict.fromkeys(line.strip() for line in watchlist.splitlines() if line.strip()))
+    if not symbols:
+        st.error("请至少输入一个关注对象。")
+        st.stop()
+
     with st.spinner("正在检索和分级市场事件..."):
         try:
-            prompt = f"关注列表：\n{watchlist}\n时间范围：{window}\n请生成市场事件 Radar 摘要。"
+            # 去重后的关注列表能减少重复搜索，也让模型更容易按对象组织结果。
+            normalized_watchlist = "\n".join(symbols)
+            prompt = f"关注列表：\n{normalized_watchlist}\n时间范围：{window}\n请生成市场事件 Radar 摘要。"
             result = agent().run(prompt, stream=False)
             st.markdown(result.content if result else "暂无结果。")
         except Exception as exc:

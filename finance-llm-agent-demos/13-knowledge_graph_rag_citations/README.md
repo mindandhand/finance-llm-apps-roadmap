@@ -1,46 +1,37 @@
 # 知识图谱 RAG 与可验证引用
 
-这是一个基于 Neo4j 和 Ollama 的本地 Knowledge Graph RAG demo。它演示如何从文档中抽取实体和关系，构建知识图谱，再通过图遍历生成带来源引用的回答。
-
-传统向量 RAG 通常按相似度找文本片段；知识图谱 RAG 更关注：
-
-```text
-文档
-  -> 抽取实体和关系
-  -> 写入 Neo4j 知识图谱
-  -> 根据问题找到起点实体
-  -> 多跳遍历相关实体
-  -> 生成带 [1] [2] 引用的答案
-  -> 展示推理轨迹和来源文本
-```
+这是一个基于 Neo4j 和 DeepSeek 远端模型的 Knowledge Graph RAG demo。应用从文档中抽取实体和关系，写入知识图谱，再通过图遍历生成带来源引用的中文回答。
 
 ## 功能
 
-- 使用 Ollama 本地模型抽取实体和关系。
-- 使用 Neo4j 存储实体节点和关系边。
-- 支持从样例文档或自定义文本构建知识图谱。
-- 根据问题做实体匹配和两跳关系扩展。
-- 生成带 `[1]`、`[2]` 引用标记的中文回答。
-- 展示推理轨迹，说明系统从哪些实体开始扩展。
-- 展示来源文档、来源片段、置信度和推理路径。
-- 支持查看实体数和关系数。
-- 支持清空图谱，重新构建。
+- 使用 DeepSeek 远端模型抽取实体和关系。
+- 使用 Neo4j 保存实体节点和关系边。
+- 支持内置样例文档和自定义文本。
+- 根据问题匹配起点实体，并进行两跳关系扩展。
+- 生成带 `[1]`、`[2]` 引用标记的回答。
+- 展示推理轨迹、来源文档、来源片段和引用路径。
+- 支持查看实体数、关系数和清空图谱。
 
-## 这个 demo 想说明什么
+核心流程：
 
-这个项目不是要替代成熟 GraphRAG 框架，而是用最小代码讲清楚几个关键边界：
+```text
+文档
+  -> DeepSeek 抽取实体和关系
+  -> 写入 Neo4j
+  -> 根据问题找到起点实体
+  -> 多跳遍历相关实体
+  -> DeepSeek 生成带引用的答案
+  -> 展示推理轨迹和来源
+```
 
-- LLM 可以抽取实体和关系，但写入图数据库的结构要由代码控制。
-- 回答问题时，不只是找相似文本，还可以沿实体关系做多跳扩展。
-- 每个回答引用都应该能追溯到来源文档和原文片段。
-- 推理轨迹应该展示给用户，方便判断答案是否可靠。
+这个版本不再使用 Ollama，不需要拉取或运行本地 LLM 镜像。只有 Neo4j 需要通过 Podman 在本机运行。
 
 ## 技术栈
 
 | 组件 | 作用 |
 | --- | --- |
 | Streamlit | Web UI |
-| Ollama | 本地 LLM 推理，默认模型 `llama3.2` |
+| DeepSeek API | 远端实体抽取和答案生成 |
 | Neo4j | 知识图谱数据库 |
 | Python dataclasses | 表示实体、关系、引用和答案 |
 | Cypher | Neo4j 图查询 |
@@ -52,123 +43,100 @@
 ├── knowledge_graph_rag.py  # Streamlit 应用和核心图谱 RAG 逻辑
 ├── requirements.txt        # Python 依赖
 ├── compose.yaml            # Podman Compose 编排示例
-├── Dockerfile              # Podman 可直接构建的 Streamlit 应用镜像
+├── Dockerfile              # 可由 Podman 构建的应用镜像
 └── README.md               # 本说明文档
 ```
 
-仓库根目录还提供统一启动脚本：
+统一脚本位于：
 
 ```text
-finance-llm-agent-demos/scripts/run_13_agent.sh
-finance-llm-agent-demos/scripts/run_13_services.sh
 finance-llm-agent-demos/scripts/pull_13_images.sh
+finance-llm-agent-demos/scripts/run_13_services.sh
+finance-llm-agent-demos/scripts/run_13_agent.sh
 ```
 
 ## 前置条件
 
-本 demo 需要两个本地服务：
+需要准备：
 
-- Neo4j：存储知识图谱。
-- Ollama：运行本地模型。
+- Podman 和一个能正常运行的 `podman machine`。
+- Python 3.9 或更高版本。
+- DeepSeek API Key。
 
-如果你只想最快跑起来，可以使用 Podman 启动 Neo4j 和 Ollama；如果你已经本地安装了 Neo4j 和 Ollama，也可以手动启动。
+Neo4j 默认连接配置为：
 
-## 方式一：Podman 启动依赖
+```text
+Browser:  http://localhost:7474
+Bolt:     bolt://localhost:7687
+用户名:    neo4j
+密码:      password
+```
 
-从仓库根目录运行：
+## 配置 DeepSeek
+
+推荐在仓库根目录或本 demo 目录创建 `.env`。`.env` 不要提交到 Git：
+
+```bash
+DEEPSEEK_API_KEY=你的 DeepSeek API Key
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_MODEL_ID=deepseek-chat
+```
+
+也可以直接设置环境变量：
+
+```bash
+export DEEPSEEK_API_KEY="你的 DeepSeek API Key"
+export DEEPSEEK_BASE_URL="https://api.deepseek.com"
+export DEEPSEEK_MODEL_ID="deepseek-chat"
+```
+
+代码通过 OpenAI-compatible 的 `/chat/completions` 接口调用远端模型。若使用其他兼容服务，只需替换 `DEEPSEEK_BASE_URL` 和 `DEEPSEEK_MODEL_ID`。
+
+## 启动 Neo4j
+
+从仓库根目录执行：
 
 ```bash
 ./finance-llm-agent-demos/scripts/pull_13_images.sh
 ./finance-llm-agent-demos/scripts/run_13_services.sh
 ```
 
-这个脚本会启动两个容器：
-
-- `kg-rag-neo4j`
-- `kg-rag-ollama`
-
-并在 Ollama 容器中拉取默认模型 `llama3.2`。镜像拉取和服务启动分开执行，便于先确认镜像仓库可用。
-
-脚本默认使用以下镜像地址，避免直接连接 Docker Hub：
+拉取脚本只处理 Neo4j 镜像。默认使用镜像代理，避免直接连接 Docker Hub：
 
 ```text
 docker.m.daocloud.io/library/neo4j:latest
-docker.m.daocloud.io/ollama/ollama:latest
 ```
 
-如果默认镜像仓库无法访问，可以替换镜像地址：
+如果需要替换镜像地址：
 
 ```bash
-NEO4J_IMAGE=<可访问的 Neo4j 镜像地址> \\
-OLLAMA_IMAGE=<可访问的 Ollama 镜像地址> \\
+NEO4J_IMAGE=<可访问的 Neo4j 镜像地址> \
 ./finance-llm-agent-demos/scripts/pull_13_images.sh
 ```
 
-如果你要换模型：
-
-```bash
-MODEL=mistral ./finance-llm-agent-demos/scripts/run_13_services.sh
-```
-
-默认配置：
-
-```text
-Neo4j Browser: http://localhost:7474
-Neo4j Bolt:    bolt://localhost:7687
-Neo4j User:    neo4j
-Neo4j Password: password
-Ollama Host:   http://localhost:11434
-Model:         llama3.2
-```
-
-如果 Podman 还没有启动虚拟机，先运行：
+如果 Podman machine 尚未运行：
 
 ```bash
 podman machine start
 ```
 
-也可以使用 Podman Compose：
+也可以使用 Compose：
 
 ```bash
 cd finance-llm-agent-demos/13-knowledge_graph_rag_citations
-podman compose up -d neo4j ollama
-podman logs -f kg-rag-ollama
+podman compose up -d neo4j
 ```
 
-## 方式二：手动启动依赖
-
-启动 Neo4j：
+查看状态和日志：
 
 ```bash
-podman run -d --replace \
-  --name kg-rag-neo4j \
-  -p 7474:7474 -p 7687:7687 \
-  -e NEO4J_AUTH=neo4j/password \
-  -v kg_rag_neo4j_data:/data \
-  neo4j:latest
-```
-
-启动 Ollama 容器并拉取模型：
-
-```bash
-podman run -d --replace \
-  --name kg-rag-ollama \
-  -p 11434:11434 \
-  -v kg_rag_ollama_data:/root/.ollama \
-  ollama/ollama:latest
-
-podman exec kg-rag-ollama ollama pull llama3.2
-```
-
-如果 Ollama 不在默认地址，可以设置：
-
-```bash
-export OLLAMA_HOST=http://localhost:11434
+podman ps
+podman logs -f kg-rag-neo4j
 ```
 
 ## 安装 Python 依赖
 
-建议使用虚拟环境：
+推荐使用虚拟环境：
 
 ```bash
 cd finance-llm-agent-demos/13-knowledge_graph_rag_citations
@@ -177,68 +145,70 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-如果依赖装在其他 Python 环境里，也可以通过 `PYTHON_BIN` 指定解释器。
+依赖包括 Streamlit、Neo4j、Requests 和 python-dotenv，不再需要 `ollama` Python 包。
 
 ## 启动应用
 
-在当前目录启动：
-
-```bash
-python -m streamlit run knowledge_graph_rag.py
-```
-
-或从仓库根目录运行：
+从仓库根目录运行：
 
 ```bash
 ./finance-llm-agent-demos/scripts/run_13_agent.sh
 ```
 
+也可以在 demo 目录运行：
+
+```bash
+cd finance-llm-agent-demos/13-knowledge_graph_rag_citations
+python -m streamlit run knowledge_graph_rag.py
+```
+
 启动脚本会优先使用：
 
 ```text
-finance-llm-agent-demos/13-knowledge_graph_rag_citations/.venv/bin/python
+13-knowledge_graph_rag_citations/.venv/bin/python
 ```
 
-如果没有 `.venv`，脚本会优先尝试 `python3.11`，再退回 `python3`。
-
-如果依赖装在其他环境里：
+如果没有该环境，会尝试 `python3.11`，再退回 `python3`。使用其他解释器时：
 
 ```bash
 PYTHON_BIN=/path/to/python ./finance-llm-agent-demos/scripts/run_13_agent.sh
 ```
 
+启动后打开终端显示的 Streamlit 地址，通常是 `http://localhost:8501` 或 `http://localhost:8502`。
+
 ## 使用流程
 
 ### 1. 配置连接
 
-侧边栏默认配置为：
+侧边栏默认值为：
 
 ```text
-Neo4j URI: bolt://localhost:7687
-Neo4j 用户名: neo4j
+Neo4j URI:  bolt://localhost:7687
+Neo4j 用户: neo4j
 Neo4j 密码: password
-Ollama 模型: llama3.2
+远端模型:   deepseek-chat
 ```
 
-如果你用 Podman 默认配置，通常不用修改。
+API Key 从 `DEEPSEEK_API_KEY` 读取，不会显示在页面上。API 地址默认是 `https://api.deepseek.com`。
 
 ### 2. 添加文档
 
-在「添加文档」页签中，可以选择内置样例：
+在「添加文档」页签中选择内置样例：
 
 - `AI 研究论文`
 - `公司报告`
 
-也可以粘贴自己的文档。点击「抽取并写入知识图谱」后，系统会：
+也可以粘贴自定义文档并填写文档名称。点击「抽取并写入知识图谱」后，系统会：
 
-1. 让 Ollama 模型抽取实体和关系。
-2. 将实体写入 Neo4j 的 `Entity` 节点。
-3. 将关系写入 `RELATES_TO` 边。
-4. 展示抽取出的实体和关系。
+1. 把文档和 JSON 输出要求发送给 DeepSeek。
+2. 解析 `entities` 和 `relationships`。
+3. 将实体写入 Neo4j 的 `Entity` 节点。
+4. 将关系写入 `RELATES_TO` 边。
+5. 展示抽取出的实体和关系。
 
 ### 3. 提问
 
-在「提问」页签中输入问题，例如：
+在「提问」页签输入问题，例如：
 
 ```text
 GraphRAG 的关键概念是什么？是谁提出的？
@@ -248,53 +218,29 @@ GraphRAG 的关键概念是什么？是谁提出的？
 
 1. 在图谱中查找相关实体。
 2. 从起点实体做两跳关系扩展。
-3. 构造带来源编号的上下文。
-4. 要求模型用 `[1]`、`[2]` 格式引用来源。
-5. 展示回答、推理轨迹和引用详情。
+3. 为来源生成 `[1]`、`[2]` 编号。
+4. 要求 DeepSeek 为关键结论添加行内引用。
+5. 将引用编号映射回来源文档和原文片段。
 
 ### 4. 查看图谱
 
-在「查看图谱」页签中，可以查看：
-
-- 实体总数。
-- 关系总数。
-- 清空当前图谱。
+在「查看图谱」页签可以查看实体总数、关系总数，也可以清空当前图谱。
 
 ## 核心代码解读
 
-### 数据模型
+### `call_remote_model()`
 
-`Entity` 表示实体：
+该函数负责远端模型调用：
 
-```text
-id, name, entity_type, description, source_doc, source_chunk
-```
+- 从环境变量读取 `DEEPSEEK_API_KEY`。
+- 使用 `DEEPSEEK_BASE_URL` 拼接 `/chat/completions`。
+- 使用 `DEEPSEEK_MODEL_ID` 指定模型。
+- 设置请求超时，检查 HTTP 状态码和返回结构。
+- 不在日志或异常中打印 API Key。
 
-`Relationship` 表示实体关系：
+### `extract_entities_with_llm()`
 
-```text
-source, target, relation_type, description, source_doc
-```
-
-`Citation` 表示可验证引用：
-
-```text
-claim, source_document, source_text, confidence, reasoning_path
-```
-
-### KnowledgeGraphManager
-
-`KnowledgeGraphManager` 封装 Neo4j 操作：
-
-- `add_entity()`：写入实体节点。
-- `add_relationship()`：写入实体关系。
-- `semantic_search()`：用文本匹配查找起点实体。
-- `find_related_entities()`：从起点实体做 N 跳扩展。
-- `clear_graph()`：清空图谱。
-
-### 实体和关系抽取
-
-`extract_entities_with_llm()` 会把文档文本发给 Ollama，要求模型返回 JSON：
+该函数将文档发送给远端模型，并要求严格返回：
 
 ```json
 {
@@ -307,16 +253,26 @@ claim, source_document, source_text, confidence, reasoning_path
 }
 ```
 
-代码会把 JSON 转换成 `Entity` 和 `Relationship` 对象，再写入 Neo4j。
+`parse_json_response()` 兼容模型把 JSON 包在 Markdown code fence 中的情况。解析后的数据会转换为 `Entity` 和 `Relationship` 对象，再写入 Neo4j。
 
-### 带引用回答
+### `KnowledgeGraphManager`
 
-`generate_answer_with_citations()` 是核心流程：
+这个类封装 Neo4j 操作：
+
+- `add_entity()`：写入实体节点。
+- `add_relationship()`：写入实体关系。
+- `semantic_search()`：用文本匹配查找起点实体。
+- `find_related_entities()`：从起点实体做 N 跳扩展。
+- `clear_graph()`：清空图谱。
+
+### `generate_answer_with_citations()`
+
+这是带引用回答的核心流程：
 
 1. `semantic_search()` 找到初始实体。
 2. `find_related_entities()` 扩展相关实体。
-3. 为每条上下文生成 `[1]`、`[2]` 这类来源编号。
-4. 让模型回答时使用编号引用。
+3. 为每条上下文生成来源编号。
+4. 把上下文发送给远端模型。
 5. 用正则提取回答中的引用编号。
 6. 将引用编号映射回来源文档和原文片段。
 
@@ -331,67 +287,59 @@ claim, source_document, source_text, confidence, reasoning_path
 
 ## 常见问题
 
-### 连接 Neo4j 失败
+### Neo4j 连接失败
 
-确认 Neo4j 已启动：
+确认 machine 和容器：
 
 ```bash
+podman machine start
 podman ps | grep neo4j
 ```
 
-确认端口：
+确认端口 `7474` 和 `7687` 没有被其他进程占用。默认密码是 `password`；如果启动容器时修改过密码，需要同步修改侧边栏。
 
-```text
-7474: Neo4j Browser
-7687: Bolt 连接
-```
+### DeepSeek API 调用失败
 
-默认密码是 `password`。如果你换过密码，需要在侧边栏同步修改。
-
-### Ollama 模型不可用
-
-确认模型已拉取：
+检查配置是否存在：
 
 ```bash
-podman exec kg-rag-ollama ollama list
-podman exec kg-rag-ollama ollama pull llama3.2
+printenv DEEPSEEK_API_KEY
+printenv DEEPSEEK_BASE_URL
+printenv DEEPSEEK_MODEL_ID
 ```
 
-如果使用 Podman 容器，查看日志：
+不要把真实 API Key 写入 README、Python 文件或 Git。HTTP 401 通常表示 Key 不正确，HTTP 429 表示额度或频率限制，HTTP 5xx 通常表示远端服务暂时不可用。
 
-```bash
-podman logs -f kg-rag-ollama
-```
-
-### 抽取出的实体为空
+### 实体抽取失败或实体为空
 
 可能原因：
 
-- Ollama 服务没启动。
-- 模型还没拉取完成。
+- DeepSeek API Key 未配置。
+- 远端模型返回的内容不是合法 JSON。
 - 文档太短或结构不清晰。
-- 模型没有返回合法 JSON。
+- 远端服务繁忙或网络请求超时。
 
-可以先使用内置样例文档测试。
+可以先用内置样例文档测试，并确认 `DEEPSEEK_MODEL_ID` 是当前账号可用的模型。
 
 ### 回答没有引用
 
 可能原因：
 
-- 图谱中没有相关实体。
-- 回答模型没有按 `[1]`、`[2]` 格式输出引用。
+- 图谱中没有匹配到相关实体。
+- 回答没有按 `[1]`、`[2]` 格式输出引用。
 - 上下文为空或相关性太弱。
 
 可以先清空图谱，重新添加内置样例，再用默认问题测试。
 
 ## 安全边界
 
-这个 demo 会把你粘贴的文本发给本地 Ollama 服务，但不会调用外部云模型。仍然需要注意：
+这个 demo 会把你粘贴的文档和问题发送给远端 DeepSeek API。请注意：
 
-- 不要粘贴未经授权的敏感文档。
+- 不要上传未经授权的敏感文档或个人信息。
+- `DEEPSEEK_API_KEY` 只放在环境变量或未跟踪的 `.env` 文件中。
 - Neo4j 默认密码 `password` 只适合本地 demo。
 - 生产环境不要暴露默认端口和默认密码。
-- LLM 抽取的实体和关系需要人工复核。
+- LLM 抽取的实体、关系和回答需要人工复核。
 
 ## 扩展方向
 
@@ -400,6 +348,6 @@ podman logs -f kg-rag-ollama
 - 为关系增加置信度和来源片段。
 - 将引用粒度从 entity chunk 提升到具体句子。
 - 增加图可视化组件，显示节点和关系。
-- 增加 Pydantic schema 校验 LLM 抽取结果。
+- 增加 Pydantic schema 校验远端模型的抽取结果。
 
 本项目仅用于技术学习和原型验证，不构成投资、法律、审计或其他专业建议。
