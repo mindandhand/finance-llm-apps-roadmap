@@ -29,7 +29,7 @@ def main() -> None:
     requested_instruments = instruments()
     if isinstance(requested_instruments, str):
         print(
-            "feature instruments: market selector",
+            "feature instruments: instrument pool",
             requested_instruments,
             "(feature query skipped)",
         )

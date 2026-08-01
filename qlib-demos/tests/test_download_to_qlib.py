@@ -198,6 +198,14 @@ class BundledMultiEtfProviderTest(unittest.TestCase):
 class SharedInstrumentEnvironmentTest(unittest.TestCase):
     env_script = ROOT / "qlib-demos/qlib_env.sh"
 
+    def test_default_instrument_pool_matches_bundled_provider(self) -> None:
+        self.assertTrue(hasattr(qlib_demo_common, "instrument_pool"))
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("QLIB_INSTRUMENT_POOL", None)
+            self.assertEqual("all", qlib_demo_common.instrument_pool())
+
+        self.assertFalse(hasattr(qlib_demo_common, "market"))
+
     def test_shared_environment_exports_default_instruments(self) -> None:
         result = subprocess.run(
             [
@@ -296,9 +304,9 @@ class SharedInstrumentEnvironmentTest(unittest.TestCase):
         )
 
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
-        self.assertIn("instruments: csi300", result.stdout)
+        self.assertIn("instruments: all", result.stdout)
         self.assertIn(
-            "feature instruments: market selector csi300 "
+            "feature instruments: instrument pool all "
             "(feature query skipped)",
             result.stdout,
         )
@@ -328,7 +336,7 @@ class SharedInstrumentEnvironmentTest(unittest.TestCase):
             with self.subTest(demo=relative_path):
                 contents = (ROOT / "qlib-demos" / relative_path).read_text()
                 self.assertIn("instruments=instruments()", contents)
-                self.assertNotIn("instruments=market()", contents)
+                self.assertNotIn("instruments=instrument_pool()", contents)
 
     def test_default_benchmark_is_available_in_bundled_provider(self) -> None:
         with mock.patch.dict(os.environ, {}, clear=False):

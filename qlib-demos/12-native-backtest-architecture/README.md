@@ -113,7 +113,7 @@ graph LR
 
 - 把 `pred.pkl` 当成回测结果。
 - 忽略 `deal_price` 与信号生成时间的关系。
-- benchmark 和 market 不匹配。
+- benchmark 和 instrument pool 不匹配（Qlib 原生策略参数名为 `market`）。
 - top-k 太小导致组合过度集中。
 
 ## 下一步

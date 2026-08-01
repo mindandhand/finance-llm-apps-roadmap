@@ -79,7 +79,7 @@ QLIB_INSTRUMENTS=sh510300 bash qlib-demos/script/run_03.sh
 可选参数：
 
 ```bash
-export QLIB_MARKET=csi300
+export QLIB_INSTRUMENT_POOL=all
 export QLIB_START_TIME=2020-01-01
 export QLIB_END_TIME=2020-12-31
 export QLIB_TRAIN_END_TIME=2020-06-30
@@ -160,7 +160,8 @@ graph TD
 4. 再读 README 的“Python 文件逐段拆解”，看输出变化从哪里来。
 5. 最后想清楚这一节在完整 Alpha workflow 里负责哪一层。
 
-不要一上来就改成很复杂的股票池和超长时间段。先用 `csi300`、较短区间和少量表达式把 Qlib 语义走通，再扩大数据规模。
+不要一上来就改成很复杂的股票池和超长时间段。先用内置的 `all`
+标的池、较短区间和少量表达式把 Qlib 语义走通，再扩大数据规模。
 
 ## 官方文档入口
 

@@ -29,6 +29,10 @@ LABEL_FIELDS = ["Ref($close, -2) / Ref($close, -1) - 1"]
 
 feature 表达式只能使用当前和历史信息。label 表达式可以引用未来，因为它是训练目标和评估目标。
 
+其中 `RETURN_VOLATILITY_20` 对应
+`Std($close / Ref($close, 1) - 1, 20)`，表示日收益率的 20 日滚动标准差。
+名称显式包含 `RETURN_VOLATILITY`，用于和基于 `$volume` 的成交量特征区分。
+
 ### `QlibDataLoader`
 
 在 `DataHandlerLP` 的 `data_loader` 配置中：
