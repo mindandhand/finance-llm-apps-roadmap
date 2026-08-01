@@ -1,5 +1,9 @@
 # 06：Qlib 单因子评估
 
+## 学习目标
+
+完成本节后，你应该能够计算并解释 coverage、IC、RankIC、ICIR 和分组收益，同时根据横截面数量与有效日期判断指标是否可靠。成功运行时 JSON 应同时包含指标、样本诊断和 `warnings`。
+
 这一节把一个候选 Qlib 表达式和一个未来收益标签对齐，计算 coverage、IC、RankIC、ICIR 和分组收益。它是自动因子评估服务的核心函数。
 
 ## 图结构
@@ -67,26 +71,26 @@ g["factor"].corr(g["label"])
 ### RankIC
 
 ```python
-g["factor"].corr(g["label"], method="spearman")
+g["factor"].rank().corr(g["label"].rank())
 ```
 
-每天在横截面上计算 Spearman 等级相关。它回答：因子排序和未来收益排序是否一致？选股研究通常更关注这个指标。
+每天先分别计算因子排名和标签排名，再对排名计算 Pearson 相关；这就是 Spearman 等级相关。它回答：因子排序和未来收益排序是否一致？选股研究通常更关注这个指标。
 
-### ICIR
+### ICIR 与统计诊断
 
 ```python
 ic_mean / ic_std
 ```
 
-ICIR 衡量 IC 的稳定性。平均 IC 高但波动也高，未必是好信号。
+`icir_daily` 是未年化的每日 IC 均值除以标准差；`icir_annualized` 再乘以 `sqrt(252)`。脚本还输出有效 IC 日期数、正 IC 日期比例和基础 t 统计量。平均 IC 高但波动也高，未必是好信号；这些诊断也不能消除小股票池、序列相关或反复筛选造成的偏差。
 
 ### 分组收益
 
 ```python
-pd.qcut(group["factor"].rank(method="first"), quantiles)
+pd.qcut(group["factor"].rank(method="first"), bucket_count)
 ```
 
-先按因子值做横截面分组，再计算每组未来收益均值。它用于观察因子是否有单调性。
+先按因子值做横截面分组，再计算每组未来收益均值。分组数不会超过当天有效标的数。它用于观察因子是否有单调性。
 
 ## 一次运行的完整执行轨迹
 
@@ -116,6 +120,11 @@ python factor_evaluation.py
 - 只看平均 IC，不看 IC 稳定性。
 - 反复用测试期筛因子。
 - 因子方向不统一，导致正负号解释混乱。
+
+## 学习检查
+
+- 依次评估动量、动量取负和常数因子，比较 IC 方向与告警。
+- 把 `quantiles` 从 3 改为 2，解释五只 ETF 下为什么结果仍不能用于显著性判断。
 
 ## 下一步
 

@@ -11,7 +11,9 @@ import pandas as pd
 DEFAULT_START = "2020-01-01"
 DEFAULT_END = "2020-12-31"
 DEFAULT_TRAIN_END = "2020-06-30"
-DEFAULT_TEST_START = "2020-07-01"
+DEFAULT_VALID_START = "2020-07-01"
+DEFAULT_VALID_END = "2020-09-30"
+DEFAULT_TEST_START = "2020-10-01"
 
 
 def require_provider_uri() -> str:
@@ -85,6 +87,14 @@ def end_time() -> str:
 def train_end_time() -> str:
     """返回训练集结束日期。"""
     return os.getenv("QLIB_TRAIN_END_TIME", DEFAULT_TRAIN_END)
+
+
+def valid_start_time() -> str:
+    return os.getenv("QLIB_VALID_START_TIME", DEFAULT_VALID_START)
+
+
+def valid_end_time() -> str:
+    return os.getenv("QLIB_VALID_END_TIME", DEFAULT_VALID_END)
 
 
 def test_start_time() -> str:

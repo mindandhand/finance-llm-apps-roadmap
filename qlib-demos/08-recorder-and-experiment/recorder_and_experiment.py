@@ -27,8 +27,8 @@ def main() -> None:
             coverage=metrics["coverage"],
             ic_mean=metrics["ic_mean"],
             rank_ic_mean=metrics["rank_ic_mean"],
-            icir=metrics["icir"] or 0.0,
-            rank_icir=metrics["rank_icir"] or 0.0,
+            icir_daily=metrics["icir_daily"] or 0.0,
+            rank_icir_daily=metrics["rank_icir_daily"] or 0.0,
         )
         R.save_objects(**{"metrics.pkl": metrics})
 

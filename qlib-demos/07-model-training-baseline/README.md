@@ -1,5 +1,9 @@
 # 07：Qlib 模型训练基线
 
+## 学习目标
+
+完成本节后，你应该能够用 DataHandlerLP/DatasetH 构造训练数据，用 valid segment 选择模型，并只在 test segment 报告样本外 IC。成功运行时应看到预测行数、test IC 和 score/label 对齐结果。
+
 这一节使用 Qlib `DataHandlerLP`、`DatasetH` 和 `LGBModel` 训练 LightGBM 基线模型，并在 test segment 上产生样本外预测分数。
 
 ## 图结构
@@ -7,7 +11,7 @@
 ```mermaid
 graph TD
     A["feature / label expression config"] --> B["DataHandlerLP"]
-    B --> C["DatasetH train/test"]
+    B --> C["DatasetH train/valid/test"]
     C --> D["LGBModel.fit(dataset)"]
     D --> E["LGBModel.predict(test)"]
     E --> F["score(datetime, instrument)"]
@@ -89,6 +93,11 @@ QLIB_PROVIDER_URI=~/.qlib/qlib_data/cn_data python model_training_baseline.py
 - 训练和推理处理链不一致。
 - 把 label 混进 feature。
 - 把 score 当成可交易收益。
+
+## 学习检查
+
+- 删除 valid segment 后观察训练接口或模型选择行为的变化。
+- 将模型 test IC 与单一 MOM20 因子的 test IC 比较，而不是只看模型自身结果。
 
 ## 下一步
 

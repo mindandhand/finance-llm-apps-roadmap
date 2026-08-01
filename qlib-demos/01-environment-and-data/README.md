@@ -1,5 +1,9 @@
 # 01：先把 Qlib 环境和数据入口跑通
 
+## 学习目标
+
+完成本节后，你应该能够定位当前导入的 Qlib 包、解释 provider 的作用，并用交易日历和基础字段确认数据可用。成功运行时应看到 provider 路径、交易日范围和可用标的；缺少 provider 时应得到明确错误。
+
 这一节只验证两件事：当前导入的是 Microsoft `pyqlib`，并且 `QLIB_PROVIDER_URI` 指向一个 Qlib provider。没有 provider 就直接失败，因为后续所有示例都要经过 Qlib 的数据层。
 
 ## 图结构
@@ -78,6 +82,11 @@ QLIB_END_TIME=2020-12-31
 - 安装了错误的 `qlib` 包，导致 `qlib.init` 不存在。
 - `QLIB_PROVIDER_URI` 指向普通 CSV 目录。
 - provider 有数据，但日期范围内没有交易日。
+
+## 学习检查
+
+- 把 `QLIB_PROVIDER_URI` 指向不存在的目录，记录错误发生在哪一层。
+- 解释 provider、calendar 和 instruments 三者分别回答什么问题。
 
 ## 下一步
 

@@ -1,5 +1,9 @@
 # 12：Qlib 原生组合回测
 
+## 学习目标
+
+完成本节后，你应该能够解释 Signal、Strategy、Executor、Exchange 和 Account 的职责边界，并通过 Recorder 生成组合报告。成功运行时应看到样本外组合序列和 portfolio analysis 指标。
+
 这一节使用 Qlib 原生组合回测链路：训练模型、保存预测信号、用 `TopkDropoutStrategy` 生成交易决策，再由 `SimulatorExecutor` 和 `PortAnaRecord` 完成组合分析。
 
 ## 图结构
@@ -115,6 +119,11 @@ graph LR
 - 忽略 `deal_price` 与信号生成时间的关系。
 - benchmark 和 instrument pool 不匹配（Qlib 原生策略参数名为 `market`）。
 - top-k 太小导致组合过度集中。
+
+## 学习检查
+
+- 修改 `topk/n_drop`，比较换手和组合指标。
+- 将交易成本设为零并与默认值比较，指出成本在哪一层生效。
 
 ## 下一步
 

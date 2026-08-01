@@ -14,10 +14,13 @@ from qlib_demo_common import (
     start_time,
     test_start_time,
     train_end_time,
+    valid_end_time,
+    valid_start_time,
 )
 
 
 def build_dataset():
+    """Build chronological model-selection and out-of-sample segments."""
     from qlib.contrib.data.handler import Alpha158
     from qlib.data.dataset import DatasetH
 
@@ -32,12 +35,14 @@ def build_dataset():
         handler=handler,
         segments={
             "train": (start_time(), train_end_time()),
+            "valid": (valid_start_time(), valid_end_time()),
             "test": (test_start_time(), end_time()),
         },
     )
 
 
 def build_port_analysis_config(model, dataset) -> dict:
+    """Describe how signals become orders, fills, holdings, and reports."""
     return {
         "executor": {
             "class": "SimulatorExecutor",

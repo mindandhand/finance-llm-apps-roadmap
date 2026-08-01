@@ -14,6 +14,8 @@ from qlib_demo_common import (
     start_time,
     test_start_time,
     train_end_time,
+    valid_end_time,
+    valid_start_time,
 )
 
 
@@ -63,6 +65,7 @@ def build_dataset():
         handler=handler,
         segments={
             "train": (start_time(), train_end_time()),
+            "valid": (valid_start_time(), valid_end_time()),
             "test": (test_start_time(), end_time()),
         },
     )

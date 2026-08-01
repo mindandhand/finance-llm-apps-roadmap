@@ -1,5 +1,9 @@
 # 14：自动因子评估服务
 
+## 学习目标
+
+完成本节后，你应该能够通过稳定 CLI 调用确定性因子评估，处理成功和失败 JSON、退出码、输出文件及小样本告警。成功输出包含 `schema_version`、`status` 和 `metrics`；失败输出包含结构化 `error`。
+
 这一节把 Qlib 数据读取、表达式计算、标签构造和指标评估收口成一个 CLI。它是后续 Agent / LangGraph 自动因子挖掘系统可以调用的确定性入口。
 
 ## 图结构
@@ -71,17 +75,29 @@ python factor_evaluation_service.py \
 
 ```json
 {
-  "expression": "$close / Ref($close, 20) - 1",
-  "label": "Ref($close, -5) / $close - 1",
-  "rows": 12345,
-  "coverage": 0.98,
-  "ic_mean": 0.02,
-  "rank_ic_mean": 0.03,
-  "icir": 0.4,
-  "rank_icir": 0.5,
-  "quantile_return_mean": {}
+  "schema_version": "1.0",
+  "status": "ok",
+  "metrics": {
+    "expression": "$close / Ref($close, 20) - 1",
+    "label": "Ref($close, -5) / $close - 1",
+    "rows": 12345,
+    "coverage": 0.98,
+    "cross_section_median": 300,
+    "ic_days": 240,
+    "ic_mean": 0.02,
+    "ic_std": 0.05,
+    "ic_positive_ratio": 0.58,
+    "ic_t_stat": 6.2,
+    "rank_ic_mean": 0.03,
+    "icir_daily": 0.4,
+    "icir_annualized": 6.349803,
+    "quantile_return_mean": {},
+    "warnings": []
+  }
 }
 ```
+
+非法表达式或环境错误返回 `status: "error"`、结构化错误类型和消息，并以退出码 1 结束。输出禁止出现非标准 JSON 值 `NaN` 和 `Infinity`。
 
 ## 核心原理
 
@@ -102,3 +118,9 @@ graph LR
 - 没有固定 label 和时间区间，导致候选不可比。
 - 单标的评估 IC，缺少横截面意义。
 - 不保存失败候选。
+
+## 学习检查
+
+- 分别传入合法表达式和非法表达式，检查 JSON 的 `status` 与进程退出码。
+- 使用 `--output` 保存结果，并确认 stdout 与文件具有相同 schema。
+- 设计一个包含三个候选表达式的批处理调用，记录成功和失败候选。
