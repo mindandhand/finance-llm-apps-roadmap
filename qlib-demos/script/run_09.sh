@@ -14,7 +14,8 @@ export QLIB_END_TIME="2026-07-18"
 # Optional overrides:
 # export QLIB_SCORE_EXPR='$close / Ref($close, 20) - 1'
 # export QLIB_LABEL_EXPR='Ref($close, -2) / Ref($close, -1) - 1'
-# export QLIB_TOPK=1
+# 内置数据只有五只 ETF，建议 top-k 小于 5 才能体现 score 排序。
+# export QLIB_TOPK=2
 # export QLIB_COST_RATE=0.001
 
 python "$DEMO_DIR/strategy_and_backtest.py"
