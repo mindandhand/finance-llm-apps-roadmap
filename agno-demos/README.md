@@ -57,13 +57,11 @@ AG-UI / AgentUI / 自定义前端
 | 7 | [`07-human-confirmation`](07-human-confirmation) | 人工确认 | 高风险操作前暂停、确认、拒绝和修改 | AgentUI |
 | 8 | [`08-team-research`](08-team-research) | 多 Agent 金融研究团队 | Researcher、Analyst、Reviewer 分工 | AgentUI |
 | 9 | [`09-workflow-report`](09-workflow-report) | 工作流生成报告 | 固定步骤、artifact、最终报告文件 | AgentUI |
-| 10 | [`10-agui-fastapi`](10-agui-fastapi) | AG-UI 接口 | 面向前端的标准事件协议 | 自定义前端 |
-| 11 | [`11-nextjs-chat-ui`](11-nextjs-chat-ui) | Next.js 聊天前端 | 会话列表、流式消息、工具卡片 | Web UI |
-| 12 | [`12-finance-research-console`](12-finance-research-console) | 交互式研究台 | 表单输入、任务状态、报告预览、下载 | Web UI |
+| 10 | [`10-agui-fastapi`](10-agui-fastapi) | AG-UI 接口 | 面向前端的标准事件协议 | API / 外部前端 |
 
 ## Agno 应用专家补充路径
 
-前 12 个 demo 的目标是达到 Agno 应用工程能力。要继续推进到 Agno 应用专家水平，重点不是研究框架底层源码，而是把 Agno 用在可维护、可部署、可观测、体验良好的真实应用里。
+前 10 个 demo 的目标是达到 Agno 应用工程能力。要继续推进到 Agno 应用专家水平，重点不是研究框架底层源码，而是把 Agno 用在可维护、可部署、可观测、体验良好的真实应用里。
 
 | # | 目录 | 主题 | 新增能力 | 目标 |
 |---|---|---|---|---|
@@ -219,12 +217,10 @@ Next.js + TypeScript + Tailwind + streaming fetch / AG-UI client
 - `09-workflow-report`
 - 目标：支持多步骤、多角色、人工确认和报告产物。
 
-第四阶段：产品化前后端
+第四阶段：产品化接口
 
 - `10-agui-fastapi`
-- `11-nextjs-chat-ui`
-- `12-finance-research-console`
-- 目标：形成一个交互友好的金融研究 Agent 控制台。
+- 目标：提供可被标准前端消费的金融研究 Agent AG-UI 接口。
 
 第五阶段：Agno 应用专家工程化
 

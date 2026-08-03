@@ -7,20 +7,22 @@ Agno Agent
    -> Agno RunEvent
    -> Agno 官方 AGUI interface
    -> 标准 AG-UI SSE
-   -> 11 或其他前端
+   -> 任意 AG-UI 前端
 ```
 
 AG-UI 是 Agent 和前端之间的开放事件协议，不属于 Agno。Agno 负责运行 Agent，`AGUI` 负责把 Agno 事件编码成前端可以消费的标准事件。
 
 ## 这个例子做什么
 
-这是一个金融研究 Agent，包含三个本地工具：
+这是一个使用 `deepseek-v4-flash` 的金融研究 Agent，包含三个本地工具：
 
 - `get_market_snapshot`：行情样例
 - `get_factor_snapshot`：动量和波动率样例
 - `get_news_packet`：新闻样例
 
 用户提问后，Agent 会根据需要调用工具，AG-UI 会通过 SSE 推送运行事件。数据是固定样例，不依赖行情网络；模型仍需要使用上层 `.env` 中的 `DEEPSEEK_API_KEY` 或 `OPENAI_API_KEY`。
+
+模型默认值为 `deepseek-v4-flash`，也可以通过 `DEEPSEEK_MODEL_ID` 覆盖。
 
 ## 运行
 
@@ -34,7 +36,13 @@ python -m pip install -r requirements.txt
 启动：
 
 ```bash
-./script/run_10.sh --serve --port 7777
+./script/run_10.sh
+```
+
+无参数时默认启动 `127.0.0.1:7777`。需要改端口时显式传参：
+
+```bash
+./script/run_10.sh --serve --port 7780
 ```
 
 检查服务：
@@ -124,12 +132,15 @@ AGUI 编码为标准 SSE 事件
 前端更新回答、工具时间线和错误状态
 ```
 
-## 和 06、11 的关系
+## 事件协议
+
+本 demo 使用 Agno 官方 `AGUI` interface，不自定义事件协议。可映射的 Agno 事件会转换为标准 AG-UI SSE 事件，例如 `TEXT_MESSAGE_*`、`TOOL_CALL_*`、`REASONING_*` 和 `RUN_*`；没有一一对应标准事件的 Agno 内部事件则通过标准 `RAW` 事件传输，前端可以继续感知原始事件名。
+
+## 和 06 的关系
 
 ```text
 06：观察 Agno 原生 RunEvent
 10：把 Agno RunEvent 适配为标准 AG-UI
-11：消费 AG-UI SSE，显示聊天和工具时间线
 ```
 
-因此 10 不是另一个聊天页面，也不是重复实现 06。它是 Agno 和前端之间的协议适配层。11 后续应改为调用 `/agui`，而不是继续解析旧的 `/agui/runs` 自定义事件。
+因此 10 不是聊天页面，也不是重复实现 06。它是 Agno 和任意前端之间的协议适配层，前端应调用 `/agui`，而不是解析旧的 `/agui/runs` 自定义事件。

@@ -83,7 +83,8 @@ def get_news_packet(symbol: str) -> dict[str, Any]:
 def build_agent() -> Agent:
     """构造被官方 AGUI interface 暴露的金融研究 Agent。"""
     api_key = os.getenv("DEEPSEEK_API_KEY") or os.getenv("OPENAI_API_KEY") or "missing"
-    model_id = os.getenv("DEEPSEEK_MODEL_ID", os.getenv("MODEL_ID", "deepseek-chat"))
+    # Flash is the default; DEEPSEEK_MODEL_ID can still override it per environment.
+    model_id = os.getenv("DEEPSEEK_MODEL_ID", os.getenv("MODEL_ID", "deepseek-v4-flash"))
     base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
     return Agent(
         id="agui-finance-research-agent",
