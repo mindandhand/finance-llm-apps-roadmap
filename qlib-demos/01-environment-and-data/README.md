@@ -60,7 +60,7 @@ qlib.init(provider_uri=provider_uri, region=region)
 2. `import_qlib()` 确认当前 `qlib` 是 Microsoft `pyqlib`。
 3. `init_qlib()` 读取 `QLIB_PROVIDER_URI` 和 `QLIB_REGION` 并初始化 Qlib。
 4. `D.calendar()` 读取指定日期范围内的交易日历。
-5. 终端打印 provider、market、date range 和 calendar range。
+5. 终端打印 provider、instrument pool、instruments、date range 和 calendar range。
 
 ## 运行方式
 
@@ -72,7 +72,7 @@ QLIB_PROVIDER_URI=~/.qlib/qlib_data/cn_data python environment_and_data.py
 
 ```bash
 QLIB_REGION=cn
-QLIB_MARKET=csi300
+QLIB_INSTRUMENT_POOL=all
 QLIB_START_TIME=2020-01-01
 QLIB_END_TIME=2020-12-31
 ```

@@ -13,7 +13,7 @@ graph TD
     A["QLIB_PROVIDER_URI"] --> B["init_qlib()"]
     B --> C["D.features(...)"]
     D["fields: $open/$high/$low/$close/$volume"] --> C
-    E["instruments 或 market"] --> C
+    E["具体 instruments 或 instrument pool"] --> C
     F["start_time / end_time"] --> C
     C --> G["MultiIndex DataFrame"]
     G --> H["datetime x instrument 行索引"]
@@ -51,7 +51,8 @@ D.features(
 
 ### `instruments()`
 
-默认返回 `QLIB_MARKET`，例如 `csi300`。如果设置了：
+默认返回 `QLIB_INSTRUMENT_POOL`；本项目内置 provider 的标的池是 `all`，对应
+`instruments/all.txt`。如果设置了：
 
 ```bash
 QLIB_INSTRUMENTS=SH600000,SZ000001
@@ -86,7 +87,7 @@ QLIB_PROVIDER_URI=~/.qlib/qlib_data/cn_data python qlib_data_api.py
 可选：
 
 ```bash
-QLIB_MARKET=csi300
+QLIB_INSTRUMENT_POOL=all
 QLIB_INSTRUMENTS=SH600000,SZ000001
 QLIB_START_TIME=2020-01-01
 QLIB_END_TIME=2020-12-31

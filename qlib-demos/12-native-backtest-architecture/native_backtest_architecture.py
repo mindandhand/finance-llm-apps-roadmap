@@ -8,8 +8,8 @@ from qlib_demo_common import (
     benchmark,
     end_time,
     init_qlib,
+    instrument_pool,
     instruments,
-    market,
     print_context,
     start_time,
     test_start_time,
@@ -99,7 +99,8 @@ def main() -> None:
 
     with R.start(experiment_name="qlib_demo_native_backtest", recorder_name="alpha158_topk"):
         R.log_params(
-            market=market(),
+            # ``market`` 是 Qlib 原生策略接口规定的参数名，值是标的池名称。
+            market=instrument_pool(),
             benchmark=port_analysis_config["backtest"]["benchmark"],
             topk=port_analysis_config["strategy"]["kwargs"]["topk"],
             n_drop=port_analysis_config["strategy"]["kwargs"]["n_drop"],

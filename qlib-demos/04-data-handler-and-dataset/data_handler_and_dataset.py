@@ -22,7 +22,7 @@ FEATURE_FIELDS = [
     "Std($close / Ref($close, 1) - 1, 20)",
     "Mean($volume, 5) / Mean($volume, 20)",
 ]
-FEATURE_NAMES = ["MOM5", "MOM20", "VOL20", "VOLUME_RATIO_5_20"]
+FEATURE_NAMES = ["MOM5", "MOM20", "RETURN_VOLATILITY_20", "VOLUME_RATIO_5_20"]
 LABEL_FIELDS = ["Ref($close, -2) / Ref($close, -1) - 1"]
 LABEL_NAMES = ["LABEL0"]
 
