@@ -13,11 +13,14 @@ graph TD
     A["Alpha158 + DatasetH"] --> B["LGBModel.fit"]
     B --> C["SignalRecord"]
     C --> D["pred.pkl"]
-    D --> E["TopkDropoutStrategy"]
-    E --> F["SimulatorExecutor"]
-    F --> G["Exchange / Account"]
-    G --> H["PortAnaRecord"]
-    H --> I["report / positions / indicators / risk analysis"]
+    C --> E["label.pkl"]
+    B --> F["(model, dataset) signal"]
+    D -. "Recorder 依赖" .-> G["PortAnaRecord 启动回测"]
+    G --> H["TopkDropoutStrategy"]
+    F --> H
+    H --> I["SimulatorExecutor"]
+    I --> J["Exchange / Account"]
+    J --> K["report / positions / indicators / risk analysis"]
 ```
 
 ## Python 文件逐段拆解
@@ -62,11 +65,96 @@ limit_threshold
 
 ### `SignalRecord`
 
-`SignalRecord(model, dataset, recorder).generate()` 会调用模型预测，并把预测结果保存成 Recorder artifact，通常是 `pred.pkl`。`PortAnaRecord` 后续依赖这个预测文件。
+`SignalRecord(model, dataset, recorder).generate()` 会对 `DatasetH` 的 test segment 调用模型预测，并把预测值和真实标签保存为两个 Recorder artifact：
+
+```text
+pred.pkl   模型预测分数
+label.pkl  与预测行对齐的真实标签
+```
+
+注意文件名是 `label.pkl`，不是 `lable.pkl`。
+
+#### `pred.pkl` 保存什么
+
+`pred.pkl` 保存一个 pandas `DataFrame`。行索引是 `datetime` 和 `instrument` 组成的 `MultiIndex`，列名是 `score`：
+
+```text
+                          score
+datetime   instrument
+2024-01-02 sh510050    0.000111
+           sh510300   -0.003552
+           sh510500    0.001262
+```
+
+每一行表示模型在某个交易日对某个标的给出的预测分数。策略按同一天的 `score` 做横截面排序，分数越高，标的越靠近候选组合前部。
+
+`score` 不是成交价格、确定收益率或买卖订单。它是否能转化为组合收益，还取决于策略规则、交易成本、成交限制和调仓频率。
+
+#### `label.pkl` 保存什么
+
+`label.pkl` 也是 pandas `DataFrame`，使用与 `pred.pkl` 相同的 `datetime/instrument` 两级索引，标签列名是 `LABEL0`：
+
+```text
+                         LABEL0
+datetime   instrument
+2024-01-02 sh510050   -0.006012
+           sh510300   -0.007420
+           sh510500   -0.007941
+```
+
+本例使用 `Alpha158`，其默认标签表达式是：
+
+```text
+Ref($close, -2) / Ref($close, -1) - 1
+```
+
+在日期 `t` 上，`Ref($close, -1)` 是下一交易日收盘价，`Ref($close, -2)` 是下下个交易日收盘价，所以该表达式计算 `t+1` 收盘到 `t+2` 收盘之间的收益率。它用来检验 `score` 对后续收益方向和排序的预测能力。
+
+`label.pkl` 用于训练结果和信号质量评估，不参与本节的组合交易决策。回测时提前读取它会造成未来数据泄漏。
+
+当前一次实际运行中，两个文件都是 `3070 × 1`，日期从 `2024-01-02` 到 `2026-07-17`。这是运行结果示例，不是固定规格；数据区间、交易日数量或标的池变化后，行数也会变化。
+
+#### `.pkl` 是什么格式
+
+`.pkl` 是 Python Pickle 二进制序列化文件常用的扩展名。Pickle 可以把 pandas `DataFrame` 等 Python 对象连同索引、列名和数据类型一起写入文件。扩展名只说明采用 Pickle 序列化，不规定内部对象必须是表格；其他 `.pkl` 文件也可能保存字典、列表或自定义对象。
+
+它与 CSV、JSON、Parquet 的差别是：
+
+| 格式 | 是否为文本 | 能否保留 pandas 对象结构 | 跨语言读取 | 适合用途 |
+| --- | --- | --- | --- | --- |
+| Pickle (`.pkl`) | 否 | 可以直接保留 | 较弱 | Python 实验中快速保存和恢复对象 |
+| CSV (`.csv`) | 是 | 索引和类型通常需要重新处理 | 强 | 简单二维数据交换 |
+| Parquet (`.parquet`) | 否 | 可保留表格 schema，但不是任意 Python 对象 | 强 | 大型表格存储和跨工具分析 |
+
+优先通过 Recorder 读取 artifact：
+
+```python
+recorder = R.get_recorder(recorder_id="<run_id>", experiment_name="qlib_demo_native_backtest")
+pred = recorder.load_object("pred.pkl")
+label = recorder.load_object("label.pkl")
+
+print(type(pred))
+print(pred.index.names)
+print(pred.columns)
+print(pred.head())
+```
+
+如果已经知道本地文件路径，也可以直接读取：
+
+```python
+import pandas as pd
+
+pred = pd.read_pickle("path/to/pred.pkl")
+label = pd.read_pickle("path/to/label.pkl")
+```
+
+Pickle 不是安全的数据交换格式。`pickle.load()` 或 `pd.read_pickle()` 可能执行文件中携带的恶意代码，因此只能读取自己生成或来源可信的 `.pkl` 文件。它还依赖 Python 和相关库的对象定义；需要长期保存或跨语言共享时，表格数据更适合导出为 Parquet。
 
 ### `PortAnaRecord`
 
-`PortAnaRecord` 会读取 `pred.pkl`，替换 strategy 配置里的 signal，然后运行 Qlib 原生 backtest。它会保存：
+`PortAnaRecord` 依赖并读取 `pred.pkl`，然后运行 Qlib 原生 backtest。本例的 strategy 配置使用 `signal=(model, dataset)`，因此策略从模型和数据集构造同一批 test signal；如果将配置写成 `signal="<PRED>"`，`PortAnaRecord` 才会把占位符替换为已保存的 `pred.pkl` 内容。
+
+组合回测完成后，它会保存：
 
 ```text
 report_normal_1day.pkl
