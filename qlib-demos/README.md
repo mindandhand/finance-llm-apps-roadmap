@@ -106,6 +106,7 @@ export QLIB_TEST_START_TIME=2020-10-01
 | 12 | [`12-native-backtest-architecture`](12-native-backtest-architecture) | 原生组合回测 | `SignalRecord`、`TopkDropoutStrategy`、`PortAnaRecord` |
 | 13 | [`13-custom-data-provider`](13-custom-data-provider) | 自有数据接入 | CSV/Parquet 到 Qlib format 的字段、目录、校验思路 |
 | 14 | [`14-factor-evaluation-service`](14-factor-evaluation-service) | 自动因子评估服务 | 输入 Qlib 表达式，输出 JSON 指标 |
+| 15 | [`15-batch-factor-evaluation`](15-batch-factor-evaluation) | 批量因子评估与实验汇总 | 统一口径评估多个候选，隔离失败并汇总 JSON |
 
 ## 每节之间怎么衔接
 
@@ -124,6 +125,7 @@ graph TD
     K --> L["12 Qlib 原生组合回测"]
     L --> M["13 自有数据接入"]
     M --> N["14 自动因子评估服务"]
+    N --> O["15 批量候选评估与汇总"]
 ```
 
 如果你已经熟悉 Pandas 和量化标签，可以从 `02-qlib-data-api` 开始。但建议至少快速跑一遍 `01`，确认当前环境有没有真实 Qlib 数据。
@@ -188,7 +190,7 @@ graph TD
 | Strategy、Executor、Exchange 和 Account 如何共同完成回测 | 12 |
 | 如何记录、复现和比较实验 | 08、10 |
 | 如何接入自己的金融数据 | 13 |
-| 如何将 Qlib 用作自动因子挖掘系统的确定性评估引擎 | 06、08、10、11、13、14 |
+| 如何将 Qlib 用作自动因子挖掘系统的确定性评估引擎 | 06、08、10、11、13、14、15 |
 
 ## 完成后能做什么
 
@@ -206,3 +208,4 @@ graph TD
 - Alpha158 / Alpha360 这类预定义特征集合到底是什么。
 - Qlib 原生回测里 Strategy、Executor、Exchange、Account 的职责边界。
 - 自有数据接入 Qlib 前需要满足哪些字段、目录和质量约束。
+- 如何用统一口径批量评估候选，并保留每个成功与失败结果。

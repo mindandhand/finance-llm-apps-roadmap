@@ -1,0 +1,20 @@
+{
+  "schema_version": "1.0",
+  "label": "Ref($close, -5) / $close - 1",
+  "quantiles": 3,
+  "min_cross_section": 3,
+  "candidates": [
+    {
+      "name": "momentum_20d",
+      "expression": "$close / Ref($close, 20) - 1"
+    },
+    {
+      "name": "ma_deviation_10d",
+      "expression": "$close / Mean($close, 10) - 1"
+    },
+    {
+      "name": "volume_ratio_20d",
+      "expression": "$volume / Mean($volume, 20)"
+    }
+  ]
+}

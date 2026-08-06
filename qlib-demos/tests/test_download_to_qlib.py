@@ -314,7 +314,7 @@ class SharedInstrumentEnvironmentTest(unittest.TestCase):
     def test_all_run_scripts_source_shared_environment(self) -> None:
         run_scripts = sorted((ROOT / "qlib-demos/script").glob("run_*.sh"))
 
-        self.assertEqual(14, len(run_scripts))
+        self.assertEqual(15, len(run_scripts))
         for run_script in run_scripts:
             with self.subTest(run_script=run_script):
                 contents = run_script.read_text()
