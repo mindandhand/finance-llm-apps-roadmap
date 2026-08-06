@@ -11,5 +11,5 @@ source "$SCRIPT_DIR/../qlib_env.sh"
 export QLIB_START_TIME="2015-01-05"
 export QLIB_END_TIME="2026-07-18"
 
-python3 "$DEMO_DIR/batch_factor_evaluation.py" \
+python "$DEMO_DIR/batch_factor_evaluation.py" \
   --input "$DEMO_DIR/candidates.json"

@@ -16,3 +16,5 @@ agent-demos/**/artifacts/
 venv/
 .env
 .worktrees/
+/mlruns/
+/Users/
