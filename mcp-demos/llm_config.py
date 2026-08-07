@@ -9,7 +9,15 @@ import os
 
 
 DEFAULT_BASE_URL = "https://api.deepseek.com/v1"
-DEFAULT_MODEL = "deepseek-chat"
+DEFAULT_MODEL = "deepseek-v4-pro"
+
+OPENAI_COMPATIBLE_ROLE_MAP = {
+    "system": "system",
+    "user": "user",
+    "assistant": "assistant",
+    "tool": "tool",
+    "model": "assistant",
+}
 
 
 def get_llm_api_key() -> str | None:
@@ -35,7 +43,13 @@ def create_agno_openai_model(openai_chat_cls, default_model: str = DEFAULT_MODEL
     model_id = get_llm_model(default_model)
     base_url = get_llm_base_url()
 
+    model_kwargs = {
+        "id": model_id,
+        "api_key": api_key,
+        "role_map": OPENAI_COMPATIBLE_ROLE_MAP,
+    }
+
     try:
-        return openai_chat_cls(id=model_id, api_key=api_key, base_url=base_url)
+        return openai_chat_cls(base_url=base_url, **model_kwargs)
     except TypeError:
-        return openai_chat_cls(id=model_id, api_key=api_key)
+        return openai_chat_cls(**model_kwargs)
