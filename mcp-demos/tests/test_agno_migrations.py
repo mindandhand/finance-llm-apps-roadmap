@@ -12,6 +12,22 @@ class AgnoMigrationTest(unittest.TestCase):
     def test_firecrawl_demo_uses_agno_and_deepseek(self):
         self.assert_agno_demo("02-firecrawl-mcp", "deepseek-v4-pro")
 
+    def test_firecrawl_demo_uses_keyless_mode(self):
+        source = (MCP_DEMOS / "02-firecrawl-mcp" / "agent.py").read_text(
+            encoding="utf-8"
+        )
+        launcher = (MCP_DEMOS / "scripts" / "run_02.sh").read_text(
+            encoding="utf-8"
+        )
+        readme = (MCP_DEMOS / "02-firecrawl-mcp" / "README.md").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertNotIn("FIRECRAWL_API_KEY", source)
+        self.assertNotIn("FIRECRAWL_API_KEY", launcher)
+        self.assertIn("Keyless", readme)
+        self.assertIn("无需注册", readme)
+
     def test_old_adk_directories_are_removed(self):
         self.assertFalse((MCP_DEMOS / "01-adk-filesystem-mcp").exists())
         self.assertFalse((MCP_DEMOS / "02-adk-firecrawl-mcp").exists())
