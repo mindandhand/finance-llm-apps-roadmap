@@ -29,17 +29,17 @@ import {
 import copilotKitLogo from "./image.png";
 
 // ---------------------------------------------------------------------------
-// Module-level constants — stable references, no re-render issues
+// 模块级常量：保持引用稳定，避免重复渲染
 // ---------------------------------------------------------------------------
 
 const CHAT_LABELS = {
-  chatInputPlaceholder: "Ask me to build a widget or add an MCP server…",
+  chatInputPlaceholder: "让我构建一个组件或添加 MCP Server……",
   welcomeMessageText:
-    "Hi! I'm the MCP App builder. Add an MCP server in the sidebar, or ask me to build a widget.",
+    "你好！我是 MCP App 构建助手。请在侧边栏添加 MCP Server，或让我构建一个组件。",
 } as const;
 
 // ---------------------------------------------------------------------------
-// Main page — owns top-level state, delegates rendering to StudioView
+// 主页面：管理顶层状态，并将渲染委托给 StudioView
 // ---------------------------------------------------------------------------
 
 export default function CopilotKitPage() {
@@ -86,7 +86,7 @@ export default function CopilotKitPage() {
 }
 
 // ---------------------------------------------------------------------------
-// Top bar
+// 顶部栏
 // ---------------------------------------------------------------------------
 
 function GitHubIcon({ className }: { className?: string }) {
@@ -112,7 +112,7 @@ function TopBar() {
     <nav className="mx-auto mb-3 flex w-full max-w-[1800px] shrink-0 items-center justify-between gap-3">
       <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
         <span className="shrink-0 text-sm font-semibold leading-none tracking-tight text-slate-900 sm:text-base">
-          MCP App builder
+          MCP App 构建助手
         </span>
         <span
           className="hidden h-4 w-px shrink-0 bg-slate-200 sm:block"
@@ -120,14 +120,14 @@ function TopBar() {
         />
         <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
           <span className="shrink-0 text-[10px] font-medium text-slate-500 sm:text-xs">
-            Powered by
+            技术支持
           </span>
           <a
             href={logoUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex min-w-0 shrink rounded-md outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-slate-400"
-            aria-label="CopilotKit — open GitHub repository"
+            aria-label="CopilotKit：打开 GitHub 仓库"
           >
             <Image
               src={copilotKitLogo}
@@ -155,8 +155,8 @@ function TopBar() {
           href={secondaryUrl}
           target="_blank"
           rel="noopener noreferrer"
-          title="View source on GitHub"
-          aria-label="View source on GitHub"
+          title="在 GitHub 查看源代码"
+          aria-label="在 GitHub 查看源代码"
           className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white/90 text-slate-600 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900 sm:h-9 sm:w-9"
         >
           <GitHubIcon className="h-[18px] w-[18px] sm:h-5 sm:w-5" />
@@ -167,8 +167,8 @@ function TopBar() {
 }
 
 // ---------------------------------------------------------------------------
-// Studio — 2-column layout: left sidebar + chat
-// Left sidebar: servers + tool list (top) / tool detail with preview + prompts (bottom)
+// 工作区：左侧边栏和对话区组成的双栏布局
+// 左侧边栏：上方显示 Server 和工具列表，下方显示工具预览及 Prompt
 // ---------------------------------------------------------------------------
 
 function StudioView({
@@ -197,10 +197,10 @@ function StudioView({
   const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceInfo | null>(
     null,
   );
-  /** Tool open in the detail modal (sidebar list stays compact). */
+  /** 在详情弹窗中打开工具，让侧边栏列表保持紧凑。 */
   const [detailTool, setDetailTool] = useState<MergedToolConfig | null>(null);
 
-  /** Matches globals.css @media (min-width: 768px) — avoids mounting two CopilotChat trees. */
+  /** 与 globals.css 的 @media (min-width: 768px) 一致，避免挂载两个 CopilotChat 树。 */
   const [mdUp, setMdUp] = useState(false);
   useEffect(() => {
     const mq = window.matchMedia("(min-width: 768px)");
@@ -210,8 +210,7 @@ function StudioView({
     return () => mq.removeEventListener("change", apply);
   }, []);
 
-  // On mount: restore the last workspace from localStorage so the user doesn't
-  // have to re-provision a new E2B sandbox on every page reload.
+  // 挂载时从 localStorage 恢复最近的工作区，避免每次刷新页面都重新创建 E2B 沙箱
   useEffect(() => {
     try {
       const raw = localStorage.getItem("mcp_active_workspace");
@@ -254,10 +253,10 @@ function StudioView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Shared sidebar content — used in both mobile and desktop layouts
+  // 移动端和桌面端共用的侧边栏内容
   const sidebarContent = (
     <>
-      {/* Servers — errors and Reconnect are shown per-server in the list */}
+      {/* Server：每个 Server 的错误和重新连接入口都显示在列表中 */}
       <section className="shrink-0 rounded-2xl border border-slate-200 bg-white p-3">
         <McpServerManager
           activeWorkspace={activeWorkspace}
@@ -267,10 +266,10 @@ function StudioView({
         />
       </section>
 
-      {/* Tool list — compact rows; full detail in modal */}
+      {/* 工具列表使用紧凑行，完整详情显示在弹窗中 */}
       <section className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <h3 className="mb-2 shrink-0 text-xs font-semibold uppercase tracking-wide text-slate-500">
-          Tools
+          工具
         </h3>
 
         {loading && mergedTools.length === 0 && <LoadingSpinner />}
@@ -305,12 +304,12 @@ function StudioView({
                       )}
                       {t.source === "local" && (
                         <span className="shrink-0 rounded px-1 py-0.5 text-[9px] font-semibold bg-blue-100 text-blue-700">
-                          Local
+                          本地
                         </span>
                       )}
                       {t.isModified && (
                         <span className="shrink-0 rounded px-1 py-0.5 text-[9px] font-semibold bg-amber-100 text-amber-700">
-                          Modified
+                          已修改
                         </span>
                       )}
                     </div>
@@ -339,7 +338,7 @@ function StudioView({
         </ul>
 
         {!loading && mergedTools.length === 0 && (
-          <EmptyState message="No tools yet. Add an MCP server or ask the agent to build one." />
+          <EmptyState message="暂无工具。请添加 MCP Server，或让 Agent 创建一个。" />
         )}
       </section>
     </>
@@ -352,8 +351,8 @@ function StudioView({
           <h2 className="text-sm font-semibold text-slate-900">Agent</h2>
           <p className="hidden text-xs text-slate-500 sm:block">
             {activeTool
-              ? `Active: ${activeTool.toolName} \u2014 ask to use it or modify it`
-              : "Select a tool, or ask the agent to create one"}
+              ? `当前工具：${activeTool.toolName}——可以要求 Agent 使用或修改它`
+              : "请选择工具，或让 Agent 创建一个"}
           </p>
         </div>
       </div>
@@ -392,12 +391,12 @@ function StudioView({
         onWorkspaceChange={setActiveWorkspace}
       >
         {/*
-        Single CopilotChat: only the active layout branch mounts chat (mobile XOR desktop).
-        Previously both branches stayed in the DOM; CSS hid mobile on desktop but React still
-        mounted two CopilotChat instances → duplicate POST /api/mastra-agent traffic.
+        单一 CopilotChat：只有当前布局分支会挂载对话组件（移动端与桌面端互斥）。
+        以前两个分支都会保留在 DOM 中；CSS 虽在桌面端隐藏移动端布局，但 React 仍会挂载
+        两个 CopilotChat 实例，从而重复请求 POST /api/mastra-agent。
       */}
         <ChatSuggestions />
-        {/* Mobile (<768px): 2-tab switcher — skip inner tree on desktop so chat is not mounted twice */}
+        {/* 移动端（<768px）：双标签切换；桌面端跳过内部树，避免重复挂载对话 */}
         <div className="mobile-layout flex h-full min-h-0 flex-col gap-2">
           {!mdUp && (
             <>
@@ -414,7 +413,7 @@ function StudioView({
                           : "bg-white/70 text-slate-600 hover:bg-white hover:text-slate-900"
                       }`}
                     >
-                      {key === "tools" ? "Tools" : "Chat"}
+                      {key === "tools" ? "工具" : "对话"}
                     </button>
                   ))}
                 </div>
@@ -431,7 +430,7 @@ function StudioView({
           )}
         </div>
 
-        {/* Desktop (≥768px): fixed-width sidebar + fluid chat */}
+        {/* 桌面端（≥768px）：固定宽度侧边栏和自适应对话区 */}
         <div
           className="desktop-layout h-full gap-3"
           style={{

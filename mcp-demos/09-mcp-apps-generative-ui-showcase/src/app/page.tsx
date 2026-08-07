@@ -14,7 +14,7 @@ import { useCallback } from "react";
 
 export const dynamic = "force-dynamic";
 
-// Lucide-style SVG icons (inline for reliability)
+// 内联 Lucide 风格 SVG 图标，避免外部资源影响稳定性
 const Icons = {
   plane: (
     <svg
@@ -109,50 +109,50 @@ const Icons = {
 const apps = [
   {
     id: "flights",
-    name: "Airline Booking",
+    name: "机票预订",
     description:
-      "Search flights, select seats, and complete bookings with a full wizard experience",
+      "搜索航班、选择座位并通过完整向导完成预订",
     icon: Icons.plane,
     iconClass: "flights",
     prompts: [
-      "Book a flight from New York to Los Angeles on January 20th for 2 passengers",
-      "Find flights from London to Paris next week",
+      "为 2 名乘客预订 1 月 20 日从纽约到洛杉矶的航班",
+      "查找下周从伦敦到巴黎的航班",
     ],
   },
   {
     id: "hotels",
-    name: "Hotel Booking",
+    name: "酒店预订",
     description:
-      "Browse hotels, compare rooms, and book accommodations in cities worldwide",
+      "浏览酒店、比较房型并预订世界各地的住宿",
     icon: Icons.building,
     iconClass: "hotels",
     prompts: [
-      "Find a hotel in Paris from January 15 to 18 for 2 guests",
-      "Search for hotels in Tokyo for 3 nights",
+      "为 2 位客人查找 1 月 15 日至 18 日的巴黎酒店",
+      "查找东京可住 3 晚的酒店",
     ],
   },
   {
     id: "trading",
-    name: "Investment Simulator",
+    name: "投资模拟器",
     description:
-      "Build portfolios, execute trades, and track performance with live charts",
+      "创建投资组合、执行交易并通过实时图表跟踪表现",
     icon: Icons.trendingUp,
     iconClass: "trading",
     prompts: [
-      "Create a $10,000 tech-focused portfolio",
-      "Build a conservative dividend portfolio",
+      "创建一个 10,000 美元、侧重科技股的投资组合",
+      "创建一个保守型红利投资组合",
     ],
   },
   {
     id: "kanban",
-    name: "Kanban Board",
+    name: "看板",
     description:
-      "Manage projects with drag-drop cards, columns, and task tracking",
+      "通过拖放卡片、分栏和任务跟踪管理项目",
     icon: Icons.layoutGrid,
     iconClass: "kanban",
     prompts: [
-      "Create a kanban board for my software project",
-      "Set up a marketing campaign board",
+      "为我的软件项目创建看板",
+      "创建营销活动看板",
     ],
   },
 ];
@@ -171,7 +171,7 @@ function AppLayout() {
   const isDesktop = useMediaQuery("(min-width: 768px)");
   const config = useCopilotChatConfiguration();
 
-  // Send a message to the chat and run the agent
+  // 发送消息并运行 Agent
   const sendMessage = useCallback(
     async (message: string) => {
       config?.setModalOpen(true);
@@ -183,7 +183,7 @@ function AppLayout() {
       try {
         await copilotkit.runAgent({ agent });
       } catch (error) {
-        console.error("Failed to run agent:", error);
+        console.error("Agent 运行失败：", error);
       }
     },
     [agent, copilotkit, config],
@@ -191,29 +191,28 @@ function AppLayout() {
 
   return (
     <div className="relative min-h-screen overflow-hidden">
-      {/* Animated Abstract Background */}
+      {/* 动态抽象背景 */}
       <div className="abstract-bg">
         <div className="blob-3" />
       </div>
 
-      {/* Main Content */}
+      {/* 主体内容 */}
       <main className="relative z-10 mx-auto flex w-full max-w-5xl flex-col gap-8 px-4 py-6 md:px-6 md:py-12">
-        {/* Hero Section */}
+        {/* 首屏区域 */}
         <section className="text-center space-y-6">
           <div className="inline-flex items-center gap-2 glass-subtle px-4 py-2 rounded-full text-sm text-[var(--color-text-secondary)]">
             {Icons.sparkles}
-            <span>MCP Apps Demo</span>
+            <span>MCP Apps 演示</span>
           </div>
           <h1 className="text-4xl md:text-5xl font-bold tracking-tight text-[var(--color-text-primary)]">
-            Interactive AI Apps in Chat
+            对话中的交互式 AI 应用
           </h1>
           <p className="max-w-2xl mx-auto text-lg text-[var(--color-text-secondary)]">
-            Rich UI components that render directly in the chat sidebar. Powered
-            by the MCP Apps Extension (SEP-1865) with bidirectional
-            communication.
+            丰富的 UI 组件可直接在对话侧边栏中渲染，并通过支持双向通信的
+            MCP Apps 扩展（SEP-1865）运行。
           </p>
 
-          {/* Docs buttons */}
+          {/* 文档按钮 */}
           <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
             <a
               href="https://go.copilotkit.ai/mcp-apps"
@@ -234,7 +233,7 @@ function AppLayout() {
                 <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
                 <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
               </svg>
-              Read more
+              了解更多
             </a>
             <a
               href="https://docs.copilotkit.ai/generative-ui/mcp-apps"
@@ -255,12 +254,12 @@ function AppLayout() {
                 <path d="M12 2L2 7l10 5 10-5-10-5z" />
                 <path d="M2 17l10 5 10-5" />
               </svg>
-              Docs
+              文档
             </a>
           </div>
         </section>
 
-        {/* App Cards Grid */}
+        {/* 应用卡片网格 */}
         <section className="grid gap-6 md:grid-cols-2">
           {apps.map((app) => (
             <div key={app.id} className="app-card">
@@ -286,7 +285,7 @@ function AppLayout() {
           ))}
         </section>
 
-        {/* Info Banner */}
+        {/* 原理说明 */}
         <section className="glass-card">
           <div className="flex items-start gap-4">
             <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-gradient-to-br from-[var(--color-lilac)] to-[var(--color-mint)] flex items-center justify-center text-white">
@@ -307,13 +306,12 @@ function AppLayout() {
             </div>
             <div>
               <h4 className="font-semibold text-[var(--color-text-primary)] mb-1">
-                How It Works
+                工作原理
               </h4>
               <p className="text-sm text-[var(--color-text-secondary)]">
-                Each app renders in a sandboxed iframe within the chat. The UI
-                communicates with the MCP server via JSON-RPC over postMessage,
-                enabling real-time interactions like selecting flight seats,
-                booking hotel rooms, or executing trades.
+                每个应用都在对话中的沙箱 iframe 内渲染。UI 通过 postMessage
+                使用 JSON-RPC 与 MCP Server 通信，从而支持选择航班座位、
+                预订酒店房间或执行交易等实时交互。
               </p>
               <p className="mt-3 text-xs text-[var(--color-text-tertiary)]">
                 MCP Server:{" "}
@@ -326,15 +324,15 @@ function AppLayout() {
         </section>
       </main>
 
-      {/* CopilotKit Chat UI - Sidebar on desktop, Popup on mobile */}
+      {/* CopilotKit 对话界面：桌面端使用侧边栏，移动端使用弹窗 */}
       {isDesktop ? (
         <CopilotSidebar defaultOpen={true} width="50%" />
       ) : (
         <CopilotPopup
           defaultOpen={false}
           labels={{
-            modalHeaderTitle: "MCP Apps Assistant",
-            chatInputPlaceholder: "What would you like to try today?",
+            modalHeaderTitle: "MCP Apps 助手",
+            chatInputPlaceholder: "今天想尝试什么？",
           }}
         />
       )}

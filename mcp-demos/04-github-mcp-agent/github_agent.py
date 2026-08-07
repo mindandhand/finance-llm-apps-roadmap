@@ -16,66 +16,66 @@ from llm_config import create_agno_openai_model, get_llm_api_key, get_llm_model
 st.set_page_config(page_title="🐙 GitHub MCP Agent", page_icon="🐙", layout="wide")
 
 st.markdown("<h1 class='main-header'>🐙 GitHub MCP Agent</h1>", unsafe_allow_html=True)
-st.markdown("Explore GitHub repositories with natural language using the Model Context Protocol")
+st.markdown("使用自然语言和模型上下文协议（MCP）探索 GitHub 仓库")
 
 with st.sidebar:
-    st.header("🔑 Authentication")
+    st.header("🔑 身份认证")
     
-    llm_key = st.text_input("LLM API Key", type="password",
-                            help="DeepSeek/OpenAI-compatible key used by the AI agent")
+    llm_key = st.text_input("大语言模型 API Key", type="password",
+                            help="Agent 使用的 DeepSeek/OpenAI 兼容密钥")
     if llm_key:
         os.environ["DEEPSEEK_API_KEY"] = llm_key
-    st.caption(f"Model: {get_llm_model()}")
+    st.caption(f"模型：{get_llm_model()}")
     
     github_token = st.text_input("GitHub Token", type="password", 
-                                help="Create a token with repo scope at github.com/settings/tokens")
+                                help="在 github.com/settings/tokens 创建具有 repo 权限的 Token")
     if github_token:
         os.environ["GITHUB_TOKEN"] = github_token
     
     st.markdown("---")
-    st.markdown("### Example Queries")
+    st.markdown("### 示例查询")
     
-    st.markdown("**Issues**")
-    st.markdown("- Show me issues by label")
-    st.markdown("- What issues are being actively discussed?")
+    st.markdown("**Issue**")
+    st.markdown("- 按标签列出 Issue")
+    st.markdown("- 哪些 Issue 正在被积极讨论？")
     
-    st.markdown("**Pull Requests**")
-    st.markdown("- What PRs need review?")
-    st.markdown("- Show me recent merged PRs")
+    st.markdown("**Pull Request**")
+    st.markdown("- 哪些 PR 需要审查？")
+    st.markdown("- 列出最近合并的 PR")
     
-    st.markdown("**Repository**")
-    st.markdown("- Show repository health metrics")
-    st.markdown("- Show repository activity patterns")
+    st.markdown("**仓库**")
+    st.markdown("- 显示仓库健康指标")
+    st.markdown("- 分析仓库活跃规律")
     
     st.markdown("---")
-    st.caption("Note: Always specify the repository in your query if not already selected in the main input.")
+    st.caption("说明：如果主输入框尚未选择仓库，请在查询中明确指定仓库。")
 
 col1, col2 = st.columns([3, 1])
 with col1:
-    repo = st.text_input("Repository", value="Shubhamsaboo/awesome-llm-apps", help="Format: owner/repo")
+    repo = st.text_input("仓库", value="Shubhamsaboo/awesome-llm-apps", help="格式：owner/repo")
 with col2:
-    query_type = st.selectbox("Query Type", [
-        "Issues", "Pull Requests", "Repository Activity", "Custom"
+    query_type = st.selectbox("查询类型", [
+        "Issue", "Pull Request", "仓库活动", "自定义"
     ])
 
-if query_type == "Issues":
-    query_template = f"Find issues labeled as bugs in {repo}"
-elif query_type == "Pull Requests":
-    query_template = f"Show me recent merged PRs in {repo}"
-elif query_type == "Repository Activity":
-    query_template = f"Analyze code quality trends in {repo}"
+if query_type == "Issue":
+    query_template = f"查找 {repo} 中带有 bug 标签的 Issue"
+elif query_type == "Pull Request":
+    query_template = f"列出 {repo} 最近合并的 PR"
+elif query_type == "仓库活动":
+    query_template = f"分析 {repo} 的代码质量趋势"
 else:
     query_template = ""
 
-query = st.text_area("Your Query", value=query_template, 
-                     placeholder="What would you like to know about this repository?")
+query = st.text_area("你的查询", value=query_template,
+                     placeholder="你想了解这个仓库的哪些信息？")
 
 async def run_github_agent(message):
     if not os.getenv("GITHUB_TOKEN"):
-        return "Error: GitHub token not provided"
+        return "错误：未提供 GitHub Token"
     
     if not get_llm_api_key():
-        return "Error: LLM API key not provided"
+        return "错误：未提供大语言模型 API Key"
     
     try:
         server_params = StdioServerParameters(
@@ -98,12 +98,12 @@ async def run_github_agent(message):
                 model=create_agno_openai_model(OpenAIChat),
                 tools=[mcp_tools],
                 instructions=dedent("""\
-                    You are a GitHub assistant. Help users explore repositories and their activity.
-                    - Provide organized, concise insights about the repository
-                    - Focus on facts and data from the GitHub API
-                    - Use markdown formatting for better readability
-                    - Present numerical data in tables when appropriate
-                    - Include links to relevant GitHub pages when helpful
+                    你是 GitHub 助手，负责帮助用户探索仓库及其活动。
+                    - 有条理且简洁地说明仓库情况
+                    - 以 GitHub API 返回的事实和数据为依据
+                    - 使用 Markdown 提升可读性
+                    - 适合时使用表格展示数值数据
+                    - 有帮助时附上相关 GitHub 页面链接
                 """),
                 markdown=True,
             )
@@ -112,46 +112,46 @@ async def run_github_agent(message):
             return response.content
                 
     except asyncio.TimeoutError:
-        return "Error: Request timed out after 120 seconds"
+        return "错误：请求在 120 秒后超时"
     except Exception as e:
-        return f"Error: {str(e)}"
+        return f"错误：{str(e)}"
 
-if st.button("🚀 Run Query", type="primary", use_container_width=True):
+if st.button("🚀 运行查询", type="primary", use_container_width=True):
     if not llm_key and not get_llm_api_key():
-        st.error("Please enter your DeepSeek/OpenAI-compatible API key in the sidebar")
+        st.error("请在侧边栏输入 DeepSeek/OpenAI 兼容 API Key")
     elif not github_token:
-        st.error("Please enter your GitHub token in the sidebar")
+        st.error("请在侧边栏输入 GitHub Token")
     elif not query:
-        st.error("Please enter a query")
+        st.error("请输入查询内容")
     else:
-        with st.spinner("Analyzing GitHub repository..."):
+        with st.spinner("正在分析 GitHub 仓库……"):
             if repo and repo not in query:
-                full_query = f"{query} in {repo}"
+                full_query = f"{query}，仓库为 {repo}"
             else:
                 full_query = query
                 
             result = asyncio.run(run_github_agent(full_query))
         
-        st.markdown("### Results")
+        st.markdown("### 查询结果")
         st.markdown(result)
 
 if 'result' not in locals():
     st.markdown(
         """<div class='info-box'>
-        <h4>How to use this app:</h4>
+        <h4>使用方法：</h4>
         <ol>
-            <li>Enter your <strong>OpenAI API key</strong> in the sidebar (powers the AI agent)</li>
-            <li>Enter your <strong>GitHub token</strong> in the sidebar</li>
-            <li>Specify a repository (e.g., Shubhamsaboo/awesome-llm-apps)</li>
-            <li>Select a query type or write your own</li>
-            <li>Click 'Run Query' to see results</li>
+            <li>在侧边栏输入<strong>大语言模型 API Key</strong></li>
+            <li>在侧边栏输入 <strong>GitHub Token</strong></li>
+            <li>指定仓库，例如 Shubhamsaboo/awesome-llm-apps</li>
+            <li>选择查询类型或输入自定义查询</li>
+            <li>点击“运行查询”查看结果</li>
         </ol>
-        <p><strong>How it works:</strong></p>
+        <p><strong>工作原理：</strong></p>
         <ul>
-            <li>Uses the official GitHub MCP server via Docker for real-time access to GitHub API</li>
-            <li>AI Agent (powered by OpenAI) interprets your queries and calls appropriate GitHub APIs</li>
-            <li>Results are formatted in readable markdown with insights and links</li>
-            <li>Queries work best when focused on specific aspects like issues, PRs, or repository info</li>
+            <li>通过 Docker 运行官方 GitHub MCP Server，实时访问 GitHub API</li>
+            <li>Agent 理解查询并调用合适的 GitHub API</li>
+            <li>使用易读的 Markdown 展示分析结果和链接</li>
+            <li>查询聚焦于 Issue、PR 或仓库信息时效果更好</li>
         </ul>
         </div>""", 
         unsafe_allow_html=True

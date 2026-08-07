@@ -8,9 +8,9 @@ import { RegisterMcpTestPromptsAction } from "./McpTestPromptsAction";
 // ---------------------------------------------------------------------------
 // BuilderAgentProvider
 //
-// Registers FRONTEND-ONLY CopilotKit actions — these update React / UI state.
-// All heavy async work (E2B provision, file I/O, exec) lives as backend tools
-// on BuiltInAgent in app/api/copilotkit/route.ts.
+// 注册仅在前端运行的 CopilotKit Action，用于更新 React/UI 状态。
+// E2B 创建、文件 I/O 和命令执行等异步重任务均由
+// app/api/copilotkit/route.ts 中 BuiltInAgent 的后端工具完成。
 // ---------------------------------------------------------------------------
 
 interface BuilderAgentProviderProps {
@@ -34,21 +34,21 @@ export function BuilderAgentProvider({
   onWorkspaceChange,
   children,
 }: BuilderAgentProviderProps) {
-  // ── Context readables ────────────────────────────────────────────────────
-  // Injected into every agent request as live context for the LLM.
+  // ── 可读上下文 ──────────────────────────────────────────────────────────
+  // 作为大语言模型的实时上下文注入每个 Agent 请求
 
   useCopilotReadable({
     description:
-      "Active E2B workspace. null = no sandbox provisioned yet — call the backend provision_workspace tool first.",
+      "当前 E2B 工作区。null 表示尚未创建沙箱，需要先调用后端 provision_workspace 工具。",
     value: activeWorkspace ?? {
       status: "not-provisioned",
       message:
-        "Call provision_workspace(name) backend tool to create an E2B sandbox.",
+        "调用后端工具 provision_workspace(name) 创建 E2B 沙箱。",
     },
   });
 
   useCopilotReadable({
-    description: "Currently selected tool in the builder",
+    description: "构建器中当前选中的工具",
     value: activeTool
       ? {
           toolName: activeTool.toolName,
@@ -61,50 +61,49 @@ export function BuilderAgentProvider({
           htmlSourcePreview: activeTool.htmlSource?.slice(0, 500) ?? null,
           isModified: activeTool.isModified,
         }
-      : { toolName: null, message: "No tool selected" },
+      : { toolName: null, message: "尚未选择工具" },
   });
 
   useCopilotReadable({
-    description: "All available tool names in the builder",
+    description: "构建器中所有可用工具的名称",
     value: allToolNames,
   });
 
   useCopilotReadable({
     description:
-      "MCP servers currently connected to the studio. Each entry is an endpoint URL.",
+      "当前连接到 Studio 的 MCP Server，每一项都是 Endpoint URL。",
     value: connectedServers,
   });
 
-  // ── UI-state frontend actions ─────────────────────────────────────────────
-  // These actions only update React state — no async I/O.
-  // The agent calls them after backend tools complete.
+  // ── UI 状态前端 Action ───────────────────────────────────────────────────
+  // 这些 Action 只更新 React 状态，不执行异步 I/O；Agent 在后端工具完成后调用
 
   useCopilotAction({
     name: "add_mcp_server",
     description:
-      "Connect a new MCP server to the studio sidebar. " +
-      "Call this after provision_workspace returns the sandbox endpoint.",
+      "将新的 MCP Server 连接到 Studio 侧边栏。" +
+      "在 provision_workspace 返回沙箱 Endpoint 后调用。",
     parameters: [
       {
         name: "endpoint",
         type: "string",
         description:
-          "Full MCP endpoint URL, e.g. https://sandbox-abc.e2b.app/mcp",
+          "完整 MCP Endpoint URL，例如 https://sandbox-abc.e2b.app/mcp",
         required: true,
       },
       {
         name: "serverId",
         type: "string",
-        description: "Short identifier, e.g. 'weather-widget'",
+        description: "简短标识，例如 weather-widget",
         required: false,
       },
     ],
     handler: async ({ endpoint, serverId }) => {
       if (connectedServers.includes(endpoint as string)) {
-        return `Server "${endpoint}" is already connected.`;
+        return `Server“${endpoint}”已连接。`;
       }
       onAddServer(endpoint as string, serverId as string | undefined);
-      // Persist serverId for session restoration
+      // 保存 serverId，以便恢复会话
       try {
         const saved = JSON.parse(
           localStorage.getItem("mcp_active_workspace") ?? "{}",
@@ -114,26 +113,26 @@ export function BuilderAgentProvider({
           JSON.stringify({ ...saved, serverId: serverId ?? "workspace" }),
         );
       } catch {}
-      return `Connected MCP server at "${endpoint}"${serverId ? ` (${serverId})` : ""}.`;
+      return `已连接位于“${endpoint}”的 MCP Server${serverId ? `（${serverId}）` : ""}。`;
     },
   });
 
   useCopilotAction({
     name: "set_active_workspace",
     description:
-      "Register the provisioned workspace in the UI — shows the status badge on the server entry. " +
-      "Call right after provision_workspace completes.",
+      "在 UI 中注册已创建的工作区，并在 Server 条目显示状态标记。" +
+      "provision_workspace 完成后立即调用。",
     parameters: [
       {
         name: "workspaceId",
         type: "string",
-        description: "Sandbox ID returned by provision_workspace",
+        description: "provision_workspace 返回的沙箱 ID",
         required: true,
       },
       {
         name: "endpoint",
         type: "string",
-        description: "MCP endpoint URL of the sandbox",
+        description: "沙箱的 MCP Endpoint URL",
         required: true,
       },
     ],
@@ -144,7 +143,7 @@ export function BuilderAgentProvider({
         status: "running",
         path: "/home/user/workspace",
       });
-      // Persist for session restoration — next page load reconnects instead of re-provisioning
+      // 保存工作区以恢复会话，下次加载页面时直接重连，无需重新创建
       try {
         const saved = JSON.parse(
           localStorage.getItem("mcp_active_workspace") ?? "{}",
@@ -158,19 +157,19 @@ export function BuilderAgentProvider({
           }),
         );
       } catch {}
-      return `Workspace registered in UI (sandboxId: ${workspaceId}).`;
+      return `工作区已在 UI 中注册（sandboxId：${workspaceId}）。`;
     },
   });
 
   useCopilotAction({
     name: "refresh_mcp_tools",
     description:
-      "Re-introspect all connected MCP servers so newly created tools appear in the sidebar. " +
-      "Call after rebuilding the dev server and waiting ~3-5 seconds.",
+      "重新获取所有已连接 MCP Server 的能力，使新工具显示在侧边栏。" +
+      "重新构建开发 Server 并等待约 3–5 秒后调用。",
     parameters: [],
     handler: async () => {
       onRefreshServers();
-      return "Refreshing MCP tools from all connected servers. New tools will appear shortly.";
+      return "正在刷新所有已连接 MCP Server 的工具，新工具稍后会显示。";
     },
   });
 

@@ -17,7 +17,7 @@ import { z } from "zod";
 import { E2BWorkspaceProvider } from "@/lib/workspace/e2b";
 import { getDefaultMcpServers, type McpServerConfig } from "@/lib/mcp-defaults";
 
-// Allow up to 5 minutes for long agent loops
+// 为较长的 Agent 循环预留最多 5 分钟
 export const maxDuration = 300;
 
 const mastraVerbose = process.env.MASTRA_AGENT_DEBUG === "1";
@@ -44,7 +44,7 @@ function readMcpServersFromHeader(req: NextRequest): McpServerConfig[] {
   }
 }
 
-// ── MCP UI tool metadata ─────────────────────────────────────────────────────
+// ── MCP UI 工具元数据 ───────────────────────────────────────────────────────
 
 interface McpUIToolInfo {
   toolName: string;
@@ -86,7 +86,7 @@ async function fetchUIToolMetadata(
         const meta = tool._meta as Record<string, any> | undefined;
         const resourceUri = meta?.["ui/resourceUri"];
         if (typeof resourceUri === "string") {
-          // Mastra MCPClient prefixes tool names with serverId
+          // Mastra MCPClient 会为工具名称添加 serverId 前缀
           const mastraToolName = `${serverId}_${tool.name}`;
           uiTools.set(mastraToolName, {
             toolName: mastraToolName,
@@ -108,9 +108,9 @@ async function fetchUIToolMetadata(
   return uiTools;
 }
 
-// ── Proxied MCP request handler ──────────────────────────────────────────────
-// When CopilotKit v2's MCPAppsActivityRenderer needs to fetch HTML for a widget,
-// it sends a proxied request through the agent. This handler executes it.
+// ── MCP 代理请求处理器 ───────────────────────────────────────────────────────
+// CopilotKit v2 的 MCPAppsActivityRenderer 获取组件 HTML 时，会通过 Agent
+// 发送代理请求，由此处理器执行
 
 async function executeProxiedMcpRequest(
   serverConfig: McpServerConfig,
@@ -142,11 +142,11 @@ async function executeProxiedMcpRequest(
         );
       case "resources/read": {
         const result = await client.readResource(params as { uri: string });
-        // Fix widget HTML for CSP-safe rendering in sandboxed iframes:
-        // 1. Extract internal origin from <base> tag (e.g. http://localhost:3109)
-        // 2. Strip <base> tag — blocked by CSP base-uri 'self' and unnecessary
-        //    when JS/CSS are inlined (--inline build) and images use __mcpPublicUrl
-        // 3. Rewrite remaining internal origin refs to the external endpoint origin
+        // 调整组件 HTML，使其可在受 CSP 保护的沙箱 iframe 中渲染：
+        // 1. 从 <base> 标签提取内部 Origin，例如 http://localhost:3109
+        // 2. 删除会被 CSP base-uri 'self' 阻止的 <base> 标签；JS/CSS 内联且图片
+        //    使用 __mcpPublicUrl 时也不再需要该标签
+        // 3. 将剩余内部 Origin 引用改写为外部 Endpoint Origin
         const serverOrigin = new URL(serverConfig.url).origin;
         if (Array.isArray(result.contents)) {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -188,15 +188,15 @@ async function executeProxiedMcpRequest(
   }
 }
 
-// ── AG-UI function middleware: ACTIVITY_SNAPSHOT + proxied requests ───────────
-// Operates at the AG-UI Observable layer (not SSE), so events properly flow
-// through the CopilotKit v2 pipeline and trigger MCPAppsActivityRenderer.
+// ── AG-UI 函数中间件：ACTIVITY_SNAPSHOT 与代理请求 ───────────────────────────
+// 在 AG-UI Observable 层而非 SSE 层运行，使事件正确流经 CopilotKit v2
+// 管线并触发 MCPAppsActivityRenderer
 
 function createMcpUIMiddleware(
   mcpServers: McpServerConfig[],
   uiTools: Map<string, McpUIToolInfo>,
 ) {
-  // Build server lookup maps for proxied requests
+  // 为代理请求构建 Server 查询映射
   const serverById = new Map<string, McpServerConfig>();
   const serverByHash = new Map<string, McpServerConfig>();
   for (const s of mcpServers) {
@@ -207,13 +207,13 @@ function createMcpUIMiddleware(
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return (input: any, next: { run: (input: any) => Observable<any> }) => {
-    // ── Handle proxied MCP requests (MCPAppsActivityRenderer fetching HTML) ──
+    // ── 处理 MCP 代理请求（MCPAppsActivityRenderer 获取 HTML）──
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const proxiedReq = input.forwardedProps?.__proxiedMCPRequest as any;
     if (proxiedReq) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       return new Observable<any>((subscriber) => {
-        // Find the server config
+        // 查找 Server 配置
         let server: McpServerConfig | undefined;
         if (proxiedReq.serverId) server = serverById.get(proxiedReq.serverId);
         if (!server && proxiedReq.serverHash)
@@ -262,25 +262,20 @@ function createMcpUIMiddleware(
       });
     }
 
-    // ── Normal requests: run the agent, intercept tool results, emit ACTIVITY_SNAPSHOT ──
+    // ── 普通请求：运行 Agent、拦截工具结果并发出 ACTIVITY_SNAPSHOT ──
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return new Observable<any>((subscriber) => {
       const toolNameByCallId = new Map<string, string>();
       const toolArgsByCallId = new Map<string, string>();
-      // FIX duplicate React keys (RCA):
-      // Mastra reuses the same messageId for TOOL_CALL_START.parentMessageId and
-      // all TEXT_MESSAGE_* events. CopilotKit creates messages from both: from
-      // TEXT_MESSAGE_* (id = messageId) and from TOOL_CALL_START (id = parentMessageId).
-      // If TEXT_MESSAGE_START with messageId X is emitted first, the runtime creates
-      // message X. TOOL_CALL_START with parentMessageId X can then create a second
-      // message with id X (reuse logic may not match), so the same id appears twice.
-      // The UI keys messages (and "custom" blocks as id-custom-after) → duplicate key errors.
+      // 修复 React Key 重复问题（根因分析）：
+      // Mastra 对 TOOL_CALL_START.parentMessageId 和所有 TEXT_MESSAGE_* 事件复用
+      // 同一个 messageId。CopilotKit 会分别从两类事件创建消息，导致相同 ID 出现两次，
+      // 进而触发消息和 custom Block 的重复 Key 错误。
       //
-      // Strategy:
-      // 1) Track every id we've already emitted (as messageId or parentMessageId).
-      // 2) Remap TEXT_MESSAGE_* messageId when it collides with a parentMessageId we've seen.
-      // 3) Remap TOOL_CALL_START parentMessageId when that id was already emitted (so we
-      //    never create a second message with the same id).
+      // 处理策略：
+      // 1. 记录已发出的每个 messageId 或 parentMessageId。
+      // 2. TEXT_MESSAGE_* 的 messageId 与已见 parentMessageId 冲突时重新映射。
+      // 3. TOOL_CALL_START 的 parentMessageId 已发出时重新映射，避免创建重复消息。
       const usedAsParentId = new Set<string>();
       const currentTextRemap = new Map<string, string>(); // original ID → current remap for this text msg
       const emittedMessageIds = new Set<string>(); // ids already sent (as messageId or parentMessageId)
@@ -289,12 +284,12 @@ function createMcpUIMiddleware(
       next.run(input).subscribe({
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         next: (event: any) => {
-          // Track parentMessageIds from tool calls (for TEXT_MESSAGE remap)
+          // 记录工具调用的 parentMessageId，供 TEXT_MESSAGE 重新映射
           if (event.type === "TOOL_CALL_START" && event.parentMessageId) {
             usedAsParentId.add(event.parentMessageId);
           }
 
-          // Remap messageId on text events that collide with a parentMessageId.
+          // 重新映射与 parentMessageId 冲突的文本事件 messageId
           if (event.messageId && usedAsParentId.has(event.messageId)) {
             if (event.type === "TEXT_MESSAGE_START") {
               currentTextRemap.set(event.messageId, crypto.randomUUID());
@@ -305,8 +300,7 @@ function createMcpUIMiddleware(
             }
           }
 
-          // Remap TOOL_CALL_START parentMessageId when that id was already emitted
-          // (avoids second message with same id → duplicate React keys).
+          // TOOL_CALL_START 的 parentMessageId 已发出时重新映射，避免 React Key 重复
           if (event.type === "TOOL_CALL_START" && event.parentMessageId) {
             const parentId = event.parentMessageId;
             if (emittedMessageIds.has(parentId)) {
@@ -317,15 +311,15 @@ function createMcpUIMiddleware(
             }
           }
 
-          // Pass through the (possibly remapped) event
+          // 传递可能已经重新映射的事件
           subscriber.next(event);
 
-          // Record ids we've emitted so we can avoid reusing them
+          // 记录已发出的 ID，避免再次使用
           if (event.messageId) emittedMessageIds.add(event.messageId);
           if (event.parentMessageId)
             emittedMessageIds.add(event.parentMessageId);
 
-          // Track tool call names
+          // 记录工具调用名称
           if (
             event.type === "TOOL_CALL_START" &&
             event.toolCallId &&
@@ -334,7 +328,7 @@ function createMcpUIMiddleware(
             toolNameByCallId.set(event.toolCallId, event.toolCallName);
           }
 
-          // Accumulate tool call args
+          // 累积工具调用参数
           if (
             event.type === "TOOL_CALL_ARGS" &&
             event.toolCallId &&
@@ -344,7 +338,7 @@ function createMcpUIMiddleware(
             toolArgsByCallId.set(event.toolCallId, prev + event.delta);
           }
 
-          // When a tool result arrives for an MCP UI tool, emit ACTIVITY_SNAPSHOT
+          // 收到 MCP UI 工具结果时发出 ACTIVITY_SNAPSHOT
           if (event.type === "TOOL_CALL_RESULT" && event.toolCallId) {
             const toolName = toolNameByCallId.get(event.toolCallId);
             if (toolName && uiTools.has(toolName)) {
@@ -359,7 +353,7 @@ function createMcpUIMiddleware(
                 /* ignore parse errors */
               }
 
-              // Wrap result to match MCPAppsActivityContentSchema:
+              // 包装结果以匹配 MCPAppsActivityContentSchema：
               // { content?: [{type:"text", text:"..."}], structuredContent?: any, isError?: boolean }
               let rawResult: unknown;
               try {
@@ -402,11 +396,11 @@ function createMcpUIMiddleware(
   };
 }
 
-// ── E2B workspace provider (stateless — safe to reuse across requests) ──────
+// ── E2B 工作区 Provider：无状态，可安全地跨请求复用 ─────────────────────────
 
 const workspaceProvider = new E2BWorkspaceProvider();
 
-// ── Backend tools — run server-side inside the agent loop ────────────────────
+// ── 后端工具：在 Agent 循环中由 Server 端运行 ────────────────────────────────
 
 const workspaceTools: Record<string, unknown> = {
   provision_workspace: {
@@ -424,8 +418,8 @@ const workspaceTools: Record<string, unknown> = {
     execute: async ({ name }: { name: string }) => {
       const info = await workspaceProvider.provision(name);
 
-      // Auto-clean default template tool (product-search) so workspace starts fresh.
-      // This avoids the agent having to know about template defaults and speeds up builds.
+      // 自动清理默认模板工具 product-search，使工作区从空白状态开始；
+      // Agent 无需了解模板默认项，构建也会更快
       try {
         const e2b = await import("e2b");
         const sandbox = await e2b.Sandbox.connect(info.workspaceId);
@@ -443,7 +437,7 @@ const workspaceTools: Record<string, unknown> = {
             "rm -rf resources/product-search-result tools/product-search.ts",
             { cwd: WS, timeoutMs: 5000 },
           );
-          // Restart so the running server drops the old tools before mcp-introspect queries it
+          // 重启 Server，使其在 mcp-introspect 查询前移除旧工具
           await sandbox.commands.run(
             "kill $(ss -tlnp 'sport = :3109' | grep -oP 'pid=\\K[0-9]+' | head -1) 2>/dev/null; sleep 1",
             { cwd: WS, timeoutMs: 10000 },
@@ -627,20 +621,20 @@ const workspaceTools: Record<string, unknown> = {
       const sandbox = await e2b.Sandbox.connect(workspaceId);
       const WS = "/home/user/workspace";
 
-      // 1. Kill old server via ss (fuser/lsof not available in E2B)
+      // 1. 通过 ss 停止旧 Server，E2B 中没有 fuser/lsof
       await sandbox.commands.run(
         "kill $(ss -tlnp 'sport = :3109' | grep -oP 'pid=\\K[0-9]+' | head -1) 2>/dev/null; sleep 2",
         { cwd: WS, timeoutMs: 10000 },
       );
 
-      // 2. Start npm run dev in background (builds widgets then starts server)
+      // 2. 在后台运行 npm run dev，先构建组件再启动 Server
       await sandbox.commands.run("npm run dev > /tmp/dev.log 2>&1", {
         cwd: WS,
         timeoutMs: 5000,
         background: true,
       });
 
-      // 3. Poll until server responds (up to 30s)
+      // 3. 轮询直到 Server 响应，最长 30 秒
       for (let attempt = 0; attempt < 6; attempt++) {
         await new Promise((r) => setTimeout(r, 5000));
 
@@ -656,7 +650,7 @@ const workspaceTools: Record<string, unknown> = {
         }
       }
 
-      // 4. Failed — return build logs for debugging
+      // 4. 失败时返回构建日志以便调试
       const logs = await sandbox.commands.run("cat /tmp/dev.log | tail -40", {
         cwd: WS,
         timeoutMs: 5000,
@@ -691,67 +685,67 @@ const workspaceTools: Record<string, unknown> = {
   },
 };
 
-// ── System prompt ─────────────────────────────────────────────────────────────
+// ── 系统 Prompt ──────────────────────────────────────────────────────────────
 
-const AGENT_SYSTEM_PROMPT = `You are the MCP UI Studio coding agent. You BUILD MCP UI tools in E2B sandboxes and USE existing MCP tools.
+const AGENT_SYSTEM_PROMPT = `你是 MCP UI Studio 编码 Agent，负责在 E2B 沙箱中构建 MCP UI 工具，并使用已有的 MCP 工具。
 
-RULES:
-1. NEVER stop after a tool call — always continue to the next step or send a message.
-2. Do NOT call read_file to "study" the template. All patterns are below.
-3. Keep messages to 1 sentence max. Batch tool calls when possible.
+规则：
+1. 工具调用后绝不能直接停止，必须继续下一步或发送消息。
+2. 不要调用 read_file“研究”模板，所有模式均在下方给出。
+3. 每条消息最多一句话，并尽量批量调用工具。
 
-REQUEST SHAPE (reliability):
-- Prefer ONE tool + ONE widget: single screen, local state, vanilla React + template CSS in /home/user/workspace.
-- Do NOT add npm dependencies or heavy client libraries unless the user clearly requires them and you can justify a minimal add—default is no new packages.
-- Avoid flowcharts, node graphs, infinite canvases, or diagram editors (React Flow, Mermaid, D3, graphviz, etc.) unless the user insists; those blow scope in the sandbox. Offer a simpler bounded widget instead (game board, calculator, list + form).
-- If the ask is vague, ask one short clarifying question instead of guessing a large architecture.
+请求范围（确保可靠性）：
+- 优先构建“一个工具 + 一个组件”：单页面、本地状态、原生 React，并使用 /home/user/workspace 中的模板 CSS。
+- 除非用户明确要求且确有必要，否则不要添加 npm 依赖或大型客户端库；默认不增加新包。
+- 除非用户坚持，否则避免流程图、节点图、无限画布或图表编辑器（React Flow、Mermaid、D3、graphviz 等），这些会使沙箱任务失控。应建议范围更小的组件，如棋盘、计算器或列表加表单。
+- 请求含糊时只提出一个简短的澄清问题，不要猜测并设计大型架构。
 
 ═══════════════════════════════════════════════════════════════
-PATTERNS (use directly — do NOT read_file)
+代码模式（直接使用，不要调用 read_file）
 ═══════════════════════════════════════════════════════════════
 
-Workspace: /home/user/workspace — Server port: 3109
+工作区：/home/user/workspace；Server 端口：3109
 
-── Tool file: tools/<name>.ts ──
+── 工具文件：tools/<name>.ts ──
 \`\`\`ts
 import { MCPServer, text, widget } from "mcp-use/server";
 import { z } from "zod";
 export function register(server: MCPServer) {
   server.tool(
-    { name: "tool-name", description: "What it does",
-      schema: z.object({ param: z.string().describe("desc") }),
-      widget: { name: "widget-folder-name", invoking: "Loading…", invoked: "Done" },
+    { name: "tool-name", description: "工具功能说明",
+      schema: z.object({ param: z.string().describe("参数说明") }),
+      widget: { name: "widget-folder-name", invoking: "正在加载……", invoked: "已完成" },
       _meta: {
-        "ui/previewData": { param: "sample-value" },  // REQUIRED: sample data for MCP UI Studio sidebar preview
+        "ui/previewData": { param: "sample-value" },  // 必需：MCP UI Studio 侧边栏预览的示例数据
       } },
-    async ({ param }) => widget({ props: { /* for React */ }, output: text("LLM summary") })
+    async ({ param }) => widget({ props: { /* 传给 React */ }, output: text("大语言模型摘要") })
   );
 }
 \`\`\`
-Always add _meta["ui/previewData"] to widget tools — object shape must match the props your widget receives. Without it the Studio has no demo preview.
+组件工具必须添加 _meta["ui/previewData"]，对象结构必须与组件接收的 props 一致，否则 Studio 无法显示演示预览。
 
-── Widget: resources/<widget-folder-name>/widget.tsx ──
+── 组件：resources/<widget-folder-name>/widget.tsx ──
 \`\`\`tsx
 import { McpUseProvider, useWidget, type WidgetMetadata } from "mcp-use/react";
 import React from "react";
 import "../styles.css";
-export const widgetMetadata: WidgetMetadata = { description: "What it shows", metadata: { prefersBorder: false } };
+export const widgetMetadata: WidgetMetadata = { description: "组件显示内容", metadata: { prefersBorder: false } };
 const W: React.FC = () => {
   const { props, isPending } = useWidget<{ param: string }>();
-  if (isPending) return <McpUseProvider><div className="p-6 animate-pulse">Loading…</div></McpUseProvider>;
+  if (isPending) return <McpUseProvider><div className="p-6 animate-pulse">正在加载……</div></McpUseProvider>;
   return (<McpUseProvider><div className="rounded-2xl border border-default bg-surface-elevated p-6">{/* UI */}</div></McpUseProvider>);
 };
 export default W;
 \`\`\`
 
-── Register in index.ts (one edit_file call with multi-edit) ──
+── 在 index.ts 中注册（一次 edit_file 调用包含多项编辑）──
 edit_file(path: "index.ts", edits: [
   { search: "// ADD NEW TOOL IMPORTS HERE", replace: 'import { register as registerX } from "./tools/x";\\n// ADD NEW TOOL IMPORTS HERE' },
   { search: "// ADD NEW TOOL REGISTRATIONS HERE", replace: 'registerX(server);\\n// ADD NEW TOOL REGISTRATIONS HERE' }
 ])
 
 ═══════════════════════════════════════════════════════════════
-WORKFLOW A — BUILD NEW TOOL (no sandbox yet)
+工作流 A：构建新工具（尚无沙箱）
 ═══════════════════════════════════════════════════════════════
 1. provision_workspace("<name>") → workspaceId + endpoint
 2. add_mcp_server(endpoint, "<name>")
@@ -759,37 +753,34 @@ WORKFLOW A — BUILD NEW TOOL (no sandbox yet)
 4. write_file: resources/<widget>/widget.tsx
 5. write_file: tools/<name>.ts
 6. edit_file(path: "index.ts", edits: [import edit, registration edit])
-7. restart_server(workspaceId) — kills old server, rebuilds, polls until healthy. If error, fix code and retry.
+7. restart_server(workspaceId)：停止旧 Server、重新构建并轮询直至健康；出错时修复代码并重试。
 8. refresh_mcp_tools()
-9. show_mcp_test_prompts(prompts_json) — frontend action: pass a JSON array STRING like [{"label":"List tools","message":"List all tools available on the MCP server"},{"label":"…","message":"…"}] so the user gets clickable chips to test the server in the same chat thread.
-10. Tell user it's live.
+9. show_mcp_test_prompts(prompts_json)：前端 Action；传入 JSON 数组字符串，如 [{"label":"列出工具","message":"列出 MCP Server 的所有可用工具"},{"label":"…","message":"…"}]，让用户可在同一对话中点击标签测试 Server。
+10. 告知用户服务已上线。
 
 ═══════════════════════════════════════════════════════════════
-WORKFLOW B — EDIT / ADD TOOL (sandbox running)
+工作流 B：编辑或添加工具（沙箱正在运行）
 ═══════════════════════════════════════════════════════════════
-Skip 1-3. Edit existing files or add new tool (steps 4-8).
-After any change: restart_server → refresh_mcp_tools → show_mcp_test_prompts (optional, when new/changed tools should be tried).
+跳过步骤 1-3，编辑现有文件或添加新工具（步骤 4-8）。
+任何修改后执行：restart_server → refresh_mcp_tools → show_mcp_test_prompts（可选，需要试用新增或变更工具时使用）。
 
 ═══════════════════════════════════════════════════════════════
-WORKFLOW C — USE EXISTING MCP TOOL
+工作流 C：使用已有 MCP 工具
 ═══════════════════════════════════════════════════════════════
-Just call the tool. No sandbox work needed.`;
+直接调用工具，无需操作沙箱。`;
 
 const openai = createOpenAI({
   apiKey: process.env.OPENAI_API_KEY,
   baseURL: process.env.OPENAI_BASE_URL,
 });
 
-/** OpenAI-compatible chat model for the Mastra agent, e.g. deepseek-chat. */
+/** Mastra Agent 使用的 OpenAI 兼容对话模型，例如 deepseek-chat。 */
 const OPENAI_MODEL = process.env.OPENAI_MODEL?.trim() || "deepseek-chat";
 
-// ── Request handler ──────────────────────────────────────────────────────────
-// Architecture:
-// - Mastra Agent executes MCP tools directly (via MCPClient — the LLM can see them)
-// - A function middleware on the AG-UI Observable layer:
-//   (a) Handles proxied MCP requests (MCPAppsActivityRenderer fetching widget HTML)
-//   (b) Intercepts TOOL_CALL_RESULT for MCP UI tools → emits ACTIVITY_SNAPSHOT
-// - CopilotKit v2's built-in MCPAppsActivityRenderer renders widget iframes
+// ── 请求处理器 ───────────────────────────────────────────────────────────────
+// 架构：Mastra Agent 通过 MCPClient 直接执行大语言模型可见的 MCP 工具；
+// AG-UI Observable 层的函数中间件处理代理请求、拦截 MCP UI 工具结果并发出
+// ACTIVITY_SNAPSHOT；CopilotKit v2 内置的 MCPAppsActivityRenderer 渲染组件 iframe
 
 export const POST = async (req: NextRequest) => {
   const requestId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -804,10 +795,10 @@ export const POST = async (req: NextRequest) => {
       OPENAI_MODEL,
     );
 
-    // 1. Fetch UI tool metadata (which tools have UI + their resource URIs)
+    // 1. 获取 UI 工具元数据，包括带 UI 的工具及其 Resource URI
     const uiTools = await fetchUIToolMetadata(mcpServers);
 
-    // 2. Create Mastra MCP client for tool execution
+    // 2. 创建用于执行工具的 Mastra MCP Client
     const mcpServerConfig: Record<string, { url: URL }> = {};
     for (const server of mcpServers) {
       const serverId = server.serverId || new URL(server.url).hostname;
@@ -827,7 +818,7 @@ export const POST = async (req: NextRequest) => {
       console.error("[mastra-agent] Failed to load MCP tools:", error);
     }
 
-    // 3. Create Mastra agent with MCP tools + workspace tools
+    // 3. 使用 MCP 工具和工作区工具创建 Mastra Agent
     const mastraAgent = new Agent({
       id: "default",
       name: "MCP UI Builder",
@@ -850,21 +841,20 @@ export const POST = async (req: NextRequest) => {
       },
     });
 
-    // 4. Wrap in AG-UI adapter
+    // 4. 使用 AG-UI Adapter 包装
     const agentWrapper = new MastraAgent({
       agent: mastraAgent,
       resourceId: "anonymous",
     });
 
-    // 5. Attach AG-UI middleware for ACTIVITY_SNAPSHOT + proxied requests
-    //    This operates at the Observable layer (not SSE), so events flow
-    //    through CopilotKit v2's pipeline and trigger MCPAppsActivityRenderer.
+    // 5. 为 ACTIVITY_SNAPSHOT 和代理请求挂载 AG-UI 中间件；中间件在 Observable
+    //    层而非 SSE 层运行，使事件流经 CopilotKit v2 管线并触发 Renderer
     // @ts-expect-error - rxjs version mismatch (7.8.1 vs 7.8.2) between @ag-ui packages
     agentWrapper.use(createMcpUIMiddleware(mcpServers, uiTools));
 
-    // FIX: CopilotKit runtime calls `registeredAgent.clone()` before runAgent().
-    // MastraAgent.clone() does `new MastraAgent(this.config)` which drops middlewares
-    // added via .use(). Override clone() to re-attach our middleware on the clone.
+    // 修复：CopilotKit Runtime 会在 runAgent() 前调用 registeredAgent.clone()；
+    // MastraAgent.clone() 会丢失通过 .use() 添加的中间件，因此覆盖 clone()，
+    // 在克隆对象上重新挂载中间件
     const mcpMiddleware = createMcpUIMiddleware(mcpServers, uiTools);
     const origClone = agentWrapper.clone.bind(agentWrapper);
     agentWrapper.clone = function () {
@@ -881,7 +871,7 @@ export const POST = async (req: NextRequest) => {
       Object.keys(mcpTools).length,
     );
 
-    // 6. CopilotKit runtime
+    // 6. 创建 CopilotKit Runtime
     const serviceAdapter = new ExperimentalEmptyAdapter();
 
     const runtime = new CopilotRuntime({

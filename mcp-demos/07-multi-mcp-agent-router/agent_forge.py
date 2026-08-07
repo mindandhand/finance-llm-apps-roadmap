@@ -1,10 +1,9 @@
-"""Multi-MCP Agent Forge - Specialized agents with MCP tool routing.
+"""多 MCP Agent Forge：通过 MCP 工具路由实现专业 Agent。
 
-Each agent connects to different MCP servers based on its domain expertise.
-This demonstrates the pattern of routing queries to specialized agents
-rather than giving one agent access to all tools.
+每个 Agent 根据领域专长连接不同的 MCP Server。本示例演示如何将查询
+路由给专业 Agent，而不是让单个 Agent 访问所有工具。
 
-Inspired by: https://github.com/WeberG619/cadre-ai
+灵感来源：https://github.com/WeberG619/cadre-ai
 """
 
 import asyncio
@@ -27,7 +26,7 @@ st.set_page_config(
 
 @dataclass
 class Agent:
-    """A specialized agent with its own system prompt and MCP server configs."""
+    """拥有独立系统提示和 MCP Server 配置的专业 Agent。"""
     name: str
     description: str
     system_prompt: str
@@ -35,21 +34,21 @@ class Agent:
     mcp_servers: list = field(default_factory=list)
 
 
-# --- Agent Definitions ---
+# --- Agent 定义 ---
 AGENTS = {
     "code_reviewer": Agent(
-        name="Code Reviewer",
-        description="Reviews code for bugs, anti-patterns, and maintainability",
+        name="代码审查员",
+        description="审查代码缺陷、反模式和可维护性",
         icon="\U0001f50d",
         system_prompt=(
-            "You are an expert code reviewer. Analyze code for:\n"
-            "- Bugs and logic errors\n"
-            "- Anti-patterns and code smells\n"
-            "- Performance issues\n"
-            "- Security vulnerabilities\n"
-            "- Readability and maintainability\n\n"
-            "Be specific. Reference line numbers. Suggest fixes with code.\n"
-            "Use the available tools to read files and fetch repository data."
+            "你是一名专业代码审查员，请分析以下方面：\n"
+            "- 缺陷和逻辑错误\n"
+            "- 反模式和代码异味\n"
+            "- 性能问题\n"
+            "- 安全漏洞\n"
+            "- 可读性和可维护性\n\n"
+            "给出具体问题和行号，并用代码提供修复建议。\n"
+            "使用可用工具读取文件和获取仓库数据。"
         ),
         mcp_servers=[
             {"name": "github", "command": "npx", "args": ["-y", "@modelcontextprotocol/server-github"]},
@@ -57,20 +56,18 @@ AGENTS = {
         ],
     ),
     "security_auditor": Agent(
-        name="Security Auditor",
-        description="Scans for OWASP Top 10, injection, XSS, secrets, and auth issues",
+        name="安全审计员",
+        description="检查 OWASP Top 10、注入、XSS、密钥和认证问题",
         icon="\U0001f6e1\ufe0f",
         system_prompt=(
-            "You are a security auditor specializing in application security.\n"
-            "Check for:\n"
-            "- OWASP Top 10 vulnerabilities\n"
-            "- Injection attacks (SQL, command, XSS)\n"
-            "- Hardcoded secrets and credentials\n"
-            "- Authentication and authorization flaws\n"
-            "- Insecure dependencies\n\n"
-            "Rate each finding: Critical / High / Medium / Low.\n"
-            "Provide remediation steps for each issue.\n"
-            "Use the available tools to fetch content and inspect repositories."
+            "你是一名专注应用安全的安全审计员。请检查：\n"
+            "- OWASP Top 10 漏洞\n"
+            "- 注入攻击（SQL、命令、XSS）\n"
+            "- 硬编码密钥和凭证\n"
+            "- 身份认证和授权缺陷\n"
+            "- 不安全的依赖\n\n"
+            "按严重、较高、中等、较低评定每个问题，并提供修复步骤。\n"
+            "使用可用工具获取内容并检查仓库。"
         ),
         mcp_servers=[
             {"name": "github", "command": "npx", "args": ["-y", "@modelcontextprotocol/server-github"]},
@@ -78,17 +75,17 @@ AGENTS = {
         ],
     ),
     "researcher": Agent(
-        name="Researcher",
-        description="Researches topics, fetches web content, and synthesizes information",
+        name="研究员",
+        description="研究主题、获取网页内容并综合信息",
         icon="\U0001f4da",
         system_prompt=(
-            "You are a research assistant. Your job is to:\n"
-            "- Fetch and analyze web content\n"
-            "- Synthesize information from multiple sources\n"
-            "- Provide citations and references\n"
-            "- Summarize findings clearly\n\n"
-            "Always cite your sources. Distinguish facts from opinions.\n"
-            "Use the available tools to fetch web pages and save research notes."
+            "你是一名研究助手，负责：\n"
+            "- 获取并分析网页内容\n"
+            "- 综合多个来源的信息\n"
+            "- 提供引用和参考资料\n"
+            "- 清晰总结研究发现\n\n"
+            "始终注明来源并区分事实和观点。\n"
+            "使用可用工具获取网页并保存研究笔记。"
         ),
         mcp_servers=[
             {"name": "fetch", "command": "npx", "args": ["-y", "@modelcontextprotocol/server-fetch"]},
@@ -96,20 +93,18 @@ AGENTS = {
         ],
     ),
     "bim_engineer": Agent(
-        name="BIM Engineer",
-        description="Works with building information models, Revit, and construction data",
+        name="BIM 工程师",
+        description="处理建筑信息模型、Revit 和施工数据",
         icon="\U0001f3d7\ufe0f",
         system_prompt=(
-            "You are a BIM (Building Information Modeling) engineer.\n"
-            "You specialize in:\n"
-            "- Revit API and model manipulation\n"
-            "- Construction document standards\n"
-            "- Building code compliance\n"
-            "- Clash detection and coordination\n"
-            "- Detail library management\n\n"
-            "When working with Revit, use the MCP bridge for direct model access.\n"
-            "Reference AIA standards for document organization.\n"
-            "Use the available tools to read and write project files."
+            "你是一名 BIM（建筑信息模型）工程师，专长包括：\n"
+            "- Revit API 和模型操作\n"
+            "- 施工文档标准\n"
+            "- 建筑规范合规性\n"
+            "- 碰撞检测和协调\n"
+            "- 详图库管理\n\n"
+            "处理 Revit 时，通过 MCP 桥接直接访问模型。\n"
+            "参考 AIA 标准组织文档，并使用可用工具读写项目文件。"
         ),
         mcp_servers=[
             {"name": "filesystem", "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]},
@@ -119,15 +114,18 @@ AGENTS = {
 
 
 def classify_query(query: str) -> str:
-    """Route a query to the best agent based on keywords."""
+    """根据关键词将查询路由给最合适的 Agent。"""
     query_lower = query.lower()
 
     security_keywords = ["security", "vulnerability", "owasp", "injection", "xss",
-                         "csrf", "secret", "credential", "auth", "penetration"]
+                         "csrf", "secret", "credential", "auth", "penetration",
+                         "安全", "漏洞", "注入", "密钥", "认证", "渗透"]
     code_keywords = ["review", "bug", "refactor", "code quality", "anti-pattern",
-                     "lint", "test", "coverage", "pull request", "pr "]
+                     "lint", "test", "coverage", "pull request", "pr ",
+                     "审查", "缺陷", "重构", "代码质量", "测试", "覆盖率"]
     bim_keywords = ["revit", "bim", "wall", "floor plan", "sheet", "construction",
-                    "building", "architecture", "detail", "annotation"]
+                    "building", "architecture", "detail", "annotation",
+                    "墙体", "平面图", "施工", "建筑", "详图", "标注"]
 
     if any(kw in query_lower for kw in security_keywords):
         return "security_auditor"
@@ -139,7 +137,7 @@ def classify_query(query: str) -> str:
 
 
 def mcp_tool_to_anthropic(tool) -> dict:
-    """Convert an MCP tool definition to Anthropic's tool format."""
+    """将 MCP 工具定义转换为 Anthropic 工具格式。"""
     return {
         "name": tool.name,
         "description": tool.description or "",
@@ -148,10 +146,10 @@ def mcp_tool_to_anthropic(tool) -> dict:
 
 
 async def connect_mcp_servers(agent: Agent) -> tuple[AsyncExitStack, list[dict], dict[str, ClientSession]]:
-    """Spawn MCP servers and collect their tools.
+    """启动 MCP Server 并收集工具。
 
-    Returns (exit_stack, tools_list, session_map) where session_map maps
-    tool_name -> session for dispatching tool calls.
+    返回 (exit_stack, tools_list, session_map)，其中 session_map 将
+    tool_name 映射到对应会话，用于分发工具调用。
     """
     stack = AsyncExitStack()
     await stack.__aenter__()
@@ -184,7 +182,7 @@ async def connect_mcp_servers(agent: Agent) -> tuple[AsyncExitStack, list[dict],
 
 
 async def run_agent_async(client: Anthropic, agent: Agent, query: str, history: list) -> str:
-    """Run a query through a specific agent with real MCP tool connections."""
+    """通过指定 Agent 和真实 MCP 工具连接执行查询。"""
     messages = history + [{"role": "user", "content": query}]
 
     if not agent.mcp_servers:
@@ -207,7 +205,7 @@ async def run_agent_async(client: Anthropic, agent: Agent, query: str, history: 
             tools=tools,
         )
 
-        # Agentic loop: handle tool calls until we get a final text response
+        # Agent 循环：持续处理工具调用，直到获得最终文本回答
         while response.stop_reason == "tool_use":
             tool_use_blocks = [b for b in response.content if b.type == "tool_use"]
             tool_results = []
@@ -218,7 +216,7 @@ async def run_agent_async(client: Anthropic, agent: Agent, query: str, history: 
                     tool_results.append({
                         "type": "tool_result",
                         "tool_use_id": tool_use.id,
-                        "content": f"Error: Unknown tool '{tool_use.name}'",
+                        "content": f"错误：未知工具“{tool_use.name}”",
                         "is_error": True,
                     })
                     continue
@@ -240,7 +238,7 @@ async def run_agent_async(client: Anthropic, agent: Agent, query: str, history: 
                     tool_results.append({
                         "type": "tool_result",
                         "tool_use_id": tool_use.id,
-                        "content": f"Error calling tool: {e}",
+                        "content": f"调用工具时出错：{e}",
                         "is_error": True,
                     })
 
@@ -255,16 +253,16 @@ async def run_agent_async(client: Anthropic, agent: Agent, query: str, history: 
                 tools=tools,
             )
 
-        # Extract final text
+        # 提取最终文本
         text_blocks = [b.text for b in response.content if hasattr(b, "text")]
-        return "\n".join(text_blocks) if text_blocks else "No response generated."
+        return "\n".join(text_blocks) if text_blocks else "未生成回答。"
 
     finally:
         await stack.aclose()
 
 
 def run_agent(client: Anthropic, agent: Agent, query: str, history: list) -> str:
-    """Sync wrapper around the async agent runner."""
+    """异步 Agent 执行器的同步包装函数。"""
     loop = asyncio.new_event_loop()
     try:
         return loop.run_until_complete(run_agent_async(client, agent, query, history))
@@ -274,80 +272,80 @@ def run_agent(client: Anthropic, agent: Agent, query: str, history: list) -> str
 
 def main():
     st.markdown("# \u2692\ufe0f Agent Forge")
-    st.markdown("**Specialized AI agents with MCP tool routing.** "
-                "Each agent connects to different MCP servers based on its expertise.")
+    st.markdown("**通过 MCP 工具路由连接专业 Agent。** "
+                "每个 Agent 根据自身专长连接不同的 MCP Server。")
 
-    # Sidebar
+    # 侧边栏
     with st.sidebar:
-        st.header("\U0001f511 Configuration")
+        st.header("\U0001f511 配置")
         api_key = st.text_input("Anthropic API Key", type="password",
-                                help="Get yours at console.anthropic.com")
+                                help="可在 console.anthropic.com 获取")
         if api_key:
             os.environ["ANTHROPIC_API_KEY"] = api_key
 
         st.markdown("---")
-        st.header("\U0001f916 Agents")
+        st.header("\U0001f916 Agent 列表")
         for agent_id, agent in AGENTS.items():
             with st.expander(f"{agent.icon} {agent.name}"):
                 st.markdown(f"**{agent.description}**")
-                st.markdown(f"*System:* {agent.system_prompt[:100]}...")
+                st.markdown(f"*系统提示：* {agent.system_prompt[:100]}...")
                 if agent.mcp_servers:
-                    st.markdown("**MCP Servers:**")
+                    st.markdown("**MCP Server：**")
                     for srv in agent.mcp_servers:
                         st.markdown(f"- `{srv['name']}`")
 
         st.markdown("---")
-        st.markdown("Built with [cadre-ai](https://github.com/WeberG619/cadre-ai)")
+        st.markdown("基于 [cadre-ai](https://github.com/WeberG619/cadre-ai) 构建")
 
-    # Agent selection
+    # 选择 Agent
     col1, col2 = st.columns([3, 1])
     with col2:
-        mode = st.radio("Agent Selection", ["Auto-Route", "Manual"])
-        if mode == "Manual":
+        mode = st.radio("Agent 选择方式", ["自动路由", "手动选择"])
+        if mode == "手动选择":
             selected = st.selectbox(
-                "Choose Agent",
+                "选择 Agent",
                 options=list(AGENTS.keys()),
                 format_func=lambda x: f"{AGENTS[x].icon} {AGENTS[x].name}",
             )
 
-    # Chat history per agent
+    # 保存每个 Agent 的对话历史
     if "histories" not in st.session_state:
         st.session_state.histories = {k: [] for k in AGENTS}
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
-    # Display chat
+    # 显示对话
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"], avatar=msg.get("avatar")):
             st.markdown(msg["content"])
 
-    # Chat input
-    if prompt := st.chat_input("Ask anything..."):
+    # 对话输入框
+    if prompt := st.chat_input("请输入任何问题……"):
         if not api_key:
-            st.error("Please enter your Anthropic API key in the sidebar.")
+            st.error("请在侧边栏输入 Anthropic API Key。")
             return
 
-        # Route to agent
-        if mode == "Auto-Route":
+        # 将查询路由给 Agent
+        if mode == "自动路由":
             agent_id = classify_query(prompt)
         else:
             agent_id = selected
 
         agent = AGENTS[agent_id]
 
-        # Show user message
+        # 显示用户消息
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
 
-        # Show routing info
+        # 显示路由信息
         with st.chat_message("assistant", avatar=agent.icon):
-            st.caption(f"Routed to **{agent.icon} {agent.name}**")
+            st.caption(f"已路由至 **{agent.icon} {agent.name}**")
             tools_info = ", ".join(s["name"] for s in agent.mcp_servers)
-            st.caption(f"MCP servers: {tools_info}" if tools_info else "No MCP servers")
+            st.caption(f"MCP Server：{tools_info}" if tools_info else "未连接 MCP Server")
 
             client = Anthropic(api_key=api_key)
-            with st.spinner(f"{agent.name} is connecting to MCP servers..."):
+            with st.spinner(f"{agent.name} 正在连接 MCP Server……"):
                 response = run_agent(
                     client, agent, prompt,
                     st.session_state.histories[agent_id],
@@ -355,7 +353,7 @@ def main():
 
             st.markdown(response)
 
-        # Update history
+        # 更新对话历史
         st.session_state.histories[agent_id].append(
             {"role": "user", "content": prompt}
         )

@@ -57,7 +57,7 @@ class BrowserDemoLocalizationTest(unittest.TestCase):
                 ("IMMEDIATELY create", "Configure the page"),
             ),
             "09-mcp-apps-generative-ui-showcase/src/app/page.tsx": (
-                ("预订从纽约到洛杉矶", "发送消息并运行 Agent"),
+                ("从纽约到洛杉矶的航班", "发送消息并运行 Agent"),
                 ("Book a flight from New York", "Send a message to the chat"),
             ),
             "10-ai-mcp-app-builder/apps/web/app/constants/chatStarters.ts": (

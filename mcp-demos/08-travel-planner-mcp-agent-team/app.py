@@ -18,15 +18,14 @@ sys.path.append(str(Path(__file__).resolve().parents[1]))
 from llm_config import create_agno_openai_model, get_llm_model
 
 def generate_ics_content(plan_text: str, start_date: datetime = None) -> bytes:
-    """
-    Generate an ICS calendar file from a travel itinerary text.
+    """根据旅行计划文本生成 ICS 日历文件。
 
-    Args:
-        plan_text: The travel itinerary text
-        start_date: Optional start date for the itinerary (defaults to today)
+    参数：
+        plan_text: 旅行计划文本
+        start_date: 可选的行程开始日期，默认为今天
 
-    Returns:
-        bytes: The ICS file content as bytes
+    返回：
+        bytes: ICS 文件的字节内容
     """
     cal = Calendar()
     cal.add('prodid','-//AI Travel Planner//github.com//')
@@ -35,30 +34,30 @@ def generate_ics_content(plan_text: str, start_date: datetime = None) -> bytes:
     if start_date is None:
         start_date = datetime.today()
 
-    # Split the plan into days
+    # 按天拆分计划
     day_pattern = re.compile(r'Day (\d+)[:\s]+(.*?)(?=Day \d+|$)', re.DOTALL)
     days = day_pattern.findall(plan_text)
 
-    if not days:  # If no day pattern found, create a single all-day event with the entire content
+    if not days:  # 未找到按天标题时，将全部内容创建为单个全天事件
         event = Event()
-        event.add('summary', "Travel Itinerary")
+        event.add('summary', "旅行计划")
         event.add('description', plan_text)
         event.add('dtstart', start_date.date())
         event.add('dtend', start_date.date())
         event.add("dtstamp", datetime.now())
         cal.add_component(event)
     else:
-        # Process each day
+        # 逐天创建事件
         for day_num, day_content in days:
             day_num = int(day_num)
             current_date = start_date + timedelta(days=day_num - 1)
 
-            # Create a single event for the entire day
+            # 为当天创建单个事件
             event = Event()
-            event.add('summary', f"Day {day_num} Itinerary")
+            event.add('summary', f"第 {day_num} 天行程")
             event.add('description', day_content.strip())
 
-            # Make it an all-day event
+            # 设置为全天事件
             event.add('dtstart', current_date.date())
             event.add('dtend', current_date.date())
             event.add("dtstamp", datetime.now())
@@ -67,14 +66,14 @@ def generate_ics_content(plan_text: str, start_date: datetime = None) -> bytes:
     return cal.to_ical()
 
 async def run_mcp_travel_planner(destination: str, num_days: int, preferences: str, budget: int, llm_key: str, google_maps_key: str):
-    """Run the MCP-based travel planner agent with real-time data access."""
+    """运行可访问实时数据的 MCP 旅行规划 Agent。"""
 
     try:
-        # Set Google Maps API key environment variable
+        # 设置 Google Maps API Key 环境变量
         os.environ["GOOGLE_MAPS_API_KEY"] = google_maps_key
         os.environ["DEEPSEEK_API_KEY"] = llm_key
 
-        # Initialize MCPTools with Airbnb MCP
+        # 使用 Airbnb MCP 初始化工具
         mcp_tools = MultiMCPTools(
             [
             "npx -y @openbnb/mcp-server-airbnb --ignore-robots-txt",
@@ -86,43 +85,43 @@ async def run_mcp_travel_planner(destination: str, num_days: int, preferences: s
             timeout_seconds=60,
         )   
 
-        # Connect to Airbnb MCP server
+        # 连接 Airbnb MCP Server
         await mcp_tools.connect()
 
 
         travel_planner = Agent(
-            name="Travel Planner",
-            role="Creates travel itineraries using Airbnb, Google Maps, and Google Search",
+            name="旅行规划师",
+            role="使用 Airbnb、Google Maps 和 Google Search 创建旅行计划",
             model=create_agno_openai_model(OpenAIChat),
             description=dedent(
                 """\
-                You are a professional travel consultant AI that creates highly detailed travel itineraries directly without asking questions.
+                你是一名专业旅行顾问，无需反复提问，直接创建细致完整的旅行计划。
 
-                You have access to:
-                🏨 Airbnb listings with real availability and current pricing
-                🗺️ Google Maps MCP for location services, directions, distance calculations, and local navigation
-                🔍 Web search capabilities for current information, reviews, and travel updates
+                你可以使用：
+                🏨 Airbnb 的实时房源、可订状态和价格
+                🗺️ Google Maps MCP 提供的位置、路线、距离计算和本地导航服务
+                🔍 网页搜索获取最新信息、评价和旅行动态
 
-                ALWAYS create a complete, detailed itinerary immediately without asking for clarification or additional information.
-                Use Google Maps MCP extensively to calculate distances between all locations and provide precise travel times.
-                If information is missing, use your best judgment and available tools to fill in the gaps.
+                不要要求用户补充信息，应立即生成完整详细的行程。
+                充分使用 Google Maps MCP 计算地点间距离并提供准确的通行时间。
+                信息不足时，结合可用工具和合理判断补全内容。
                 """
             ),
             instructions=[
-                "IMPORTANT: Never ask questions or request clarification - always generate a complete itinerary",
-                "Research the destination thoroughly using all available tools to gather comprehensive current information",
-                "Find suitable accommodation options within the budget using Airbnb MCP with real prices and availability",
-                "Create an extremely detailed day-by-day itinerary with specific activities, locations, exact timing, and distances",
-                "Use Google Maps MCP extensively to calculate distances between ALL locations and provide travel times",
-                "Include detailed transportation options and turn-by-turn navigation tips using Google Maps MCP",
-                "Research dining options with specific restaurant names, addresses, price ranges, and distance from accommodation",
-                "Check current weather conditions, seasonal factors, and provide detailed packing recommendations",
-                "Calculate precise estimated costs for EVERY aspect of the trip and ensure recommendations fit within budget",
-                "Include detailed information about each attraction: opening hours, ticket prices, best visiting times, and distance from accommodation",
-                "Add practical information including local transportation costs, currency exchange, safety tips, and cultural norms",
-                "Structure the itinerary with clear sections, detailed timing for each activity, and include buffer time between activities",
-                "Use all available tools proactively without asking for permission",
-                "Generate the complete, detailed itinerary in one response without follow-up questions"
+                "重要：不要提问或要求澄清，直接生成完整行程",
+                "使用所有可用工具充分研究目的地并收集最新信息",
+                "通过 Airbnb MCP 查找预算内且具有真实价格和可订状态的住宿",
+                "按天创建详细行程，列出具体活动、地点、准确时间和距离",
+                "充分使用 Google Maps MCP 计算所有地点间距离和通行时间",
+                "使用 Google Maps MCP 提供详细交通方案和导航提示",
+                "列出餐厅名称、地址、价格范围及其与住宿地点的距离",
+                "查询当前天气和季节因素，并给出具体行李建议",
+                "准确估算旅行各项费用，确保建议符合预算",
+                "列出景点开放时间、票价、最佳游览时间及其与住宿地点的距离",
+                "补充当地交通费用、货币兑换、安全提示和文化习俗",
+                "用清晰章节组织行程，列出各活动时间并预留缓冲时间",
+                "主动使用所有可用工具，无需请求许可",
+                "一次性生成完整详细的行程，不提出后续问题"
             ],
             tools=[mcp_tools, GoogleSearchTools()],
             add_datetime_to_context=True,
@@ -130,50 +129,49 @@ async def run_mcp_travel_planner(destination: str, num_days: int, preferences: s
             debug_mode=False,
         )
 
-        # Create the planning prompt
+        # 创建旅行规划 Prompt
         prompt = f"""
-        IMMEDIATELY create an extremely detailed and comprehensive travel itinerary for:
+        立即为以下信息创建非常详细且完整的旅行计划：
 
-        **Destination:** {destination}
-        **Duration:** {num_days} days
-        **Budget:** ${budget} USD total
-        **Preferences:** {preferences}
+        **目的地：** {destination}
+        **时长：** {num_days} 天
+        **总预算：** {budget} 美元
+        **偏好：** {preferences}
 
-        DO NOT ask any questions. Generate a complete, highly detailed itinerary now using all available tools.
+        不要提问，立即使用所有可用工具生成完整详细的行程。
 
-        **CRITICAL REQUIREMENTS:**
-        - Use Google Maps MCP to calculate distances and travel times between ALL locations
-        - Include specific addresses for every location, restaurant, and attraction
-        - Provide detailed timing for each activity with buffer time between locations
-        - Calculate precise costs for transportation between each location
-        - Include opening hours, ticket prices, and best visiting times for all attractions
-        - Provide detailed weather information and specific packing recommendations
+        **关键要求：**
+        - 使用 Google Maps MCP 计算所有地点间的距离和通行时间
+        - 提供每个地点、餐厅和景点的具体地址
+        - 给出每项活动的详细时间，并在地点之间预留缓冲时间
+        - 准确计算各地点之间的交通费用
+        - 提供所有景点的开放时间、票价和最佳游览时间
+        - 提供详细天气信息和具体行李建议
 
-        **REQUIRED OUTPUT FORMAT:**
-        1. **Trip Overview** - Summary, total estimated cost breakdown, detailed weather forecast
-        2. **Accommodation** - 3 specific Airbnb options with real prices, addresses, amenities, and distance from city center
-        3. **Transportation Overview** - Detailed transportation options, costs, and recommendations
-        4. **Day-by-Day Itinerary** - Extremely detailed schedule with:
-           - Specific start/end times for each activity
-           - Exact distances and travel times between locations (use Google Maps MCP)
-           - Detailed descriptions of each location with addresses
-           - Opening hours, ticket prices, and best visiting times
-           - Estimated costs for each activity and transportation
-           - Buffer time between activities for unexpected delays
-        5. **Dining Plan** - Specific restaurants with addresses, price ranges, cuisine types, and distance from accommodation
-        6. **Detailed Practical Information**:
-           - Weather forecast with clothing recommendations
-           - Currency exchange rates and costs
-           - Local transportation options and costs
-           - Safety information and emergency contacts
-           - Cultural norms and etiquette tips
-           - Communication options (SIM cards, WiFi, etc.)
-           - Health and medical considerations
-           - Shopping and souvenir recommendations
+        **输出格式：**
+        1. **旅行概览**：摘要、总费用明细和详细天气预报
+        2. **住宿**：3 个 Airbnb 选项，包含真实价格、地址、设施及与市中心的距离
+        3. **交通概览**：详细交通方式、费用和建议
+        4. **逐日行程**：标题使用 `Day 1`、`Day 2` 等格式，并包含：
+           - 每项活动的具体开始和结束时间
+           - 地点间准确距离和通行时间（使用 Google Maps MCP）
+           - 各地点的详细说明和地址
+           - 开放时间、票价和最佳游览时间
+           - 各项活动和交通的预估费用
+           - 应对意外延误的缓冲时间
+        5. **餐饮计划**：餐厅名称、地址、价格范围、菜系及与住宿地点的距离
+        6. **详细实用信息**：
+           - 天气预报和着装建议
+           - 汇率和兑换费用
+           - 当地交通方式和费用
+           - 安全信息和紧急联系方式
+           - 文化习俗和礼仪
+           - 通信方案（SIM 卡、WiFi 等）
+           - 健康和医疗注意事项
+           - 购物和纪念品建议
 
-        Use Airbnb MCP for real accommodation data, Google Maps MCP for ALL distance calculations and location services, and web search for current information.
-        Make reasonable assumptions and fill in any gaps with your knowledge.
-        Generate the complete, highly detailed itinerary in one response without asking for clarification.
+        使用 Airbnb MCP 获取真实住宿数据，使用 Google Maps MCP 完成所有距离计算和位置服务，
+        并通过网页搜索获取最新信息。信息缺失时作出合理假设，一次性生成完整详细的行程，不要求澄清。
         """
 
         response: RunOutput = await travel_planner.arun(prompt)
@@ -183,107 +181,106 @@ async def run_mcp_travel_planner(destination: str, num_days: int, preferences: s
         await mcp_tools.close()
 
 def run_travel_planner(destination: str, num_days: int, preferences: str, budget: int, llm_key: str, google_maps_key: str):
-    """Synchronous wrapper for the async MCP travel planner."""
+    """异步 MCP 旅行规划器的同步包装函数。"""
     return asyncio.run(run_mcp_travel_planner(destination, num_days, preferences, budget, llm_key, google_maps_key))
     
-# -------------------- Streamlit App --------------------
+# -------------------- Streamlit 应用 --------------------
     
-# Configure the page
+# 配置页面
 st.set_page_config(
-    page_title="MCP AI Travel Planner",
+    page_title="MCP AI 旅行规划师",
     page_icon="✈️",
     layout="wide"
 )
 
-# Initialize session state
+# 初始化会话状态
 if 'itinerary' not in st.session_state:
     st.session_state.itinerary = None
 
-# Title and description
-st.title("✈️ MCP AI Travel Planner")
-st.caption("Plan your next adventure with AI Travel Planner using MCP servers for real-time data access")
+# 标题和说明
+st.title("✈️ MCP AI 旅行规划师")
+st.caption("通过 MCP Server 获取实时数据，使用 AI 规划下一次旅行")
 
-# Sidebar for API keys
+# API Key 侧边栏
 with st.sidebar:
-    st.header("🔑 API Keys Configuration")
-    st.warning("⚠️ These services require API keys:")
+    st.header("🔑 API Key 配置")
+    st.warning("⚠️ 以下服务需要 API Key：")
 
-    llm_api_key = st.text_input("LLM API Key", type="password", help="DeepSeek/OpenAI-compatible key for AI planning")
-    st.caption(f"Model: {get_llm_model()}")
-    google_maps_key = st.text_input("Google Maps API Key", type="password", help="Required for location services")
+    llm_api_key = st.text_input("大语言模型 API Key", type="password", help="旅行规划使用的 DeepSeek/OpenAI 兼容密钥")
+    st.caption(f"模型：{get_llm_model()}")
+    google_maps_key = st.text_input("Google Maps API Key", type="password", help="位置服务必需")
 
-    # Check if API keys are provided.
+    # 检查是否已提供 API Key
     api_keys_provided = llm_api_key and google_maps_key
 
     if api_keys_provided:
-        st.success("✅ All API keys configured!")
+        st.success("✅ 所有 API Key 已配置！")
     else:
-        st.warning("⚠️ Please enter both API keys to use the travel planner.")
+        st.warning("⚠️ 请输入两个 API Key 后再使用旅行规划师。")
         st.info("""
-        **Required API Keys:**
-        - **LLM API Key**: DeepSeek / OpenAI-compatible provider key
-        - **Google Maps API Key**: https://console.cloud.google.com/apis/credentials (for location services)
+        **必需的 API Key：**
+        - **大语言模型 API Key**：DeepSeek/OpenAI 兼容服务商密钥
+        - **Google Maps API Key**：https://console.cloud.google.com/apis/credentials（用于位置服务）
         """)
 
-# Main content (only shown if API keys are provided)
+# 主体内容，仅在已提供 API Key 时显示
 if api_keys_provided:
-    # Main input section
-    st.header("🌍 Trip Details")
+    # 主要输入区域
+    st.header("🌍 旅行详情")
 
     col1, col2 = st.columns(2)
 
     with col1:
-        destination = st.text_input("Destination", placeholder="e.g., Paris, Tokyo, New York")
-        num_days = st.number_input("Number of Days", min_value=1, max_value=30, value=7)
+        destination = st.text_input("目的地", placeholder="例如：巴黎、东京、纽约")
+        num_days = st.number_input("旅行天数", min_value=1, max_value=30, value=7)
 
     with col2:
-        budget = st.number_input("Budget (USD)", min_value=100, max_value=10000, step=100, value=2000)
-        start_date = st.date_input("Start Date", min_value=date.today(), value=date.today())
+        budget = st.number_input("预算（美元）", min_value=100, max_value=10000, step=100, value=2000)
+        start_date = st.date_input("开始日期", min_value=date.today(), value=date.today())
 
-    # Preferences section
-    st.subheader("🎯 Travel Preferences")
+    # 旅行偏好区域
+    st.subheader("🎯 旅行偏好")
     preferences_input = st.text_area(
-        "Describe your travel preferences",
-        placeholder="e.g., adventure activities, cultural sites, food, relaxation, nightlife...",
+        "描述你的旅行偏好",
+        placeholder="例如：探险活动、文化景点、美食、休闲、夜生活……",
         height=100
     )
 
-    # Quick preference buttons
+    # 快速偏好选项
     quick_prefs = st.multiselect(
-        "Quick Preferences (optional)",
-        ["Adventure", "Relaxation", "Sightseeing", "Cultural Experiences",
-         "Beach", "Mountain", "Luxury", "Budget-Friendly", "Food & Dining",
-         "Shopping", "Nightlife", "Family-Friendly"],
-        help="Select multiple preferences or describe in detail above"
+        "快速偏好（可选）",
+        ["探险", "休闲", "观光", "文化体验", "海滩", "山地", "奢华",
+         "经济实惠", "美食", "购物", "夜生活", "亲子友好"],
+        help="可选择多个偏好，或在上方输入详细描述"
     )
 
-    # Combine preferences
+    # 合并旅行偏好
     all_preferences = []
     if preferences_input:
         all_preferences.append(preferences_input)
     if quick_prefs:
         all_preferences.extend(quick_prefs)
 
-    preferences = ", ".join(all_preferences) if all_preferences else "General sightseeing"
+    preferences = "、".join(all_preferences) if all_preferences else "常规观光"
 
-    # Generate button
+    # 生成按钮
     col1, col2 = st.columns([1, 1])
 
     with col1:
-        if st.button("🎯 Generate Itinerary", type="primary"):
+        if st.button("🎯 生成行程", type="primary"):
             if not destination:
-                st.error("Please enter a destination.")
+                st.error("请输入目的地。")
             elif not preferences:
-                st.warning("Please describe your preferences or select quick preferences.")
+                st.warning("请描述旅行偏好或选择快速偏好。")
             else:
-                tools_message = "🏨 Connecting to Airbnb MCP"
+                tools_message = "🏨 正在连接 Airbnb MCP"
                 if google_maps_key:
-                    tools_message += " and Google Maps MCP"
-                tools_message += ", creating itinerary..."
+                    tools_message += " 和 Google Maps MCP"
+                tools_message += "，正在创建行程……"
 
                 with st.spinner(tools_message):
                     try:
-                        # Calculate number of days from start date
+                        # 根据开始日期生成行程
                         response = run_travel_planner(
                             destination=destination,
                             num_days=num_days,
@@ -293,35 +290,35 @@ if api_keys_provided:
                             google_maps_key=google_maps_key or ""
                         )
 
-                        # Store the response in session state
+                        # 将回答保存到会话状态
                         st.session_state.itinerary = response
 
-                        # Show MCP connection status
+                        # 显示 MCP 连接状态
                         if "Airbnb" in response and ("listing" in response.lower() or "accommodation" in response.lower()):
-                            st.success("✅ Your travel itinerary is ready with Airbnb data!")
-                            st.info("🏨 Used real Airbnb listings for accommodation recommendations")
+                            st.success("✅ 已使用 Airbnb 数据生成旅行计划！")
+                            st.info("🏨 住宿建议使用了真实 Airbnb 房源")
                         else:
-                            st.success("✅ Your travel itinerary is ready!")
-                            st.info("📝 Used general knowledge for accommodation suggestions (Airbnb MCP may have failed to connect)")
+                            st.success("✅ 旅行计划已生成！")
+                            st.info("📝 住宿建议使用了通用知识，Airbnb MCP 可能连接失败")
 
                     except Exception as e:
-                        st.error(f"Error: {str(e)}")
-                        st.info("Please try again or check your internet connection.")
+                        st.error(f"错误：{str(e)}")
+                        st.info("请重试或检查网络连接。")
 
     with col2:
         if st.session_state.itinerary:
-            # Generate the ICS file
+            # 生成 ICS 文件
             ics_content = generate_ics_content(st.session_state.itinerary, datetime.combine(start_date, datetime.min.time()))
 
-            # Provide the file for download
+            # 提供文件下载
             st.download_button(
-                label="📅 Download as Calendar",
+                label="📅 下载日历文件",
                 data=ics_content,
                 file_name="travel_itinerary.ics",
                 mime="text/calendar"
             )
 
-    # Display itinerary
+    # 显示旅行计划
     if st.session_state.itinerary:
-        st.header("📋 Your Travel Itinerary")
+        st.header("📋 你的旅行计划")
         st.markdown(st.session_state.itinerary)

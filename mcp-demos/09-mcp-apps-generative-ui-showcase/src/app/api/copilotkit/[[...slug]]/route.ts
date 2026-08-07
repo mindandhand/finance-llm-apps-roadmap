@@ -1,8 +1,8 @@
 /**
- * CopilotKit API route with MCP Apps middleware.
- * Connects to the travel booking MCP server and enables UI-enabled tools.
+ * 使用 MCP Apps 中间件的 CopilotKit API 路由。
+ * 连接旅行预订 MCP Server，并启用带 UI 的工具。
  *
- * Reference: v2.x/apps/react/demo/src/app/api/copilotkit-mcp/[[...slug]]/route.ts
+ * 参考：v2.x/apps/react/demo/src/app/api/copilotkit-mcp/[[...slug]]/route.ts
  */
 
 import {
@@ -14,7 +14,7 @@ import {
 import { handle } from "hono/vercel";
 import { MCPAppsMiddleware } from "@ag-ui/mcp-apps-middleware";
 
-// Determine which LLM model to use based on available API keys
+// 根据可用 API Key 决定使用哪个大语言模型
 const determineModel = () => {
   if (process.env.OPENAI_API_KEY?.trim()) {
     return `openai/${process.env.OPENAI_MODEL?.trim() || "deepseek-chat"}`;
@@ -28,42 +28,42 @@ const determineModel = () => {
   return `openai/${process.env.OPENAI_MODEL?.trim() || "deepseek-chat"}`;
 };
 
-// Create the agent with multi-app assistant persona and MCP Apps middleware
+// 使用多应用助手角色和 MCP Apps 中间件创建 Agent
 const agent = new BuiltInAgent({
   model: determineModel(),
-  prompt: `You are an AI assistant with access to 4 interactive apps that render in the chat. Each app provides a rich UI for specific tasks.
+  prompt: `你是一名 AI 助手，可以访问 4 个直接在对话中渲染的交互式应用。每个应用都为特定任务提供丰富的 UI。
 
-## Available Apps
+## 可用应用
 
-### 1. Airline Booking (search-flights)
-Search for flights, select seats, and complete bookings with a full wizard experience.
-- Parameters: origin (airport code like JFK, LAX, LHR), destination (airport code), departureDate (YYYY-MM-DD), passengers (1-9), cabinClass (economy/business/first)
-- Example: "Book a flight from New York to Los Angeles on January 20th for 2 passengers"
-- Helper tools: select-flight, select-seats, book-flight
+### 1. 机票预订（search-flights）
+搜索航班、选择座位并通过完整向导完成预订。
+- 参数：origin（机场代码，如 JFK、LAX、LHR）、destination（机场代码）、departureDate（YYYY-MM-DD）、passengers（1-9）、cabinClass（economy/business/first）
+- 示例：“为 2 名乘客预订 1 月 20 日从纽约到洛杉矶的航班”
+- 辅助工具：select-flight、select-seats、book-flight
 
-### 2. Hotel Booking (search-hotels)
-Browse hotels, compare rooms, and book accommodations in cities worldwide.
-- Parameters: city (Paris, Tokyo, New York, etc.), checkIn (YYYY-MM-DD), checkOut (YYYY-MM-DD), guests (1-6), rooms (1-4)
-- Example: "Find a hotel in Paris from January 15 to 18 for 2 guests"
-- Helper tools: select-hotel, select-room, book-hotel
+### 2. 酒店预订（search-hotels）
+浏览酒店、比较房型并预订世界各地的住宿。
+- 参数：city（巴黎、东京、纽约等）、checkIn（YYYY-MM-DD）、checkOut（YYYY-MM-DD）、guests（1-6）、rooms（1-4）
+- 示例：“为 2 位客人查找 1 月 15 日至 18 日的巴黎酒店”
+- 辅助工具：select-hotel、select-room、book-hotel
 
-### 3. Investment Simulator (create-portfolio)
-Create mock investment portfolios with holdings, charts, and trading.
-- Parameters: initialBalance (1000-1000000), riskTolerance (conservative/moderate/aggressive), focus (tech/healthcare/diversified/growth/dividend)
-- Example: "Create a $10,000 aggressive tech-focused portfolio"
-- Helper tools: execute-trade, refresh-prices
+### 3. 投资模拟器（create-portfolio）
+创建包含持仓、图表和交易功能的模拟投资组合。
+- 参数：initialBalance（1000-1000000）、riskTolerance（conservative/moderate/aggressive）、focus（tech/healthcare/diversified/growth/dividend）
+- 示例：“创建一个 10,000 美元、激进型且侧重科技股的投资组合”
+- 辅助工具：execute-trade、refresh-prices
 
-### 4. Kanban Board (create-board)
-Create task boards with drag-drop cards and columns.
-- Parameters: projectName (string), template (blank/software/marketing/personal)
-- Example: "Create a kanban board for my software project"
-- Helper tools: add-card, update-card, delete-card, move-card
+### 4. 看板（create-board）
+创建支持拖放卡片和分栏的任务看板。
+- 参数：projectName（字符串）、template（blank/software/marketing/personal）
+- 示例：“为我的软件项目创建看板”
+- 辅助工具：add-card、update-card、delete-card、move-card
 
-## Guidelines
-- When a user's request matches an app, use the appropriate tool to render the interactive UI
-- Ask clarifying questions if key parameters are missing
-- Each app has helper tools for additional interactions within the UI
-- Be helpful and guide users through the interactive features`,
+## 行为准则
+- 用户请求与某个应用匹配时，使用相应工具渲染交互式 UI
+- 缺少关键参数时提出澄清问题
+- 每个应用都有辅助工具，用于处理 UI 中的进一步交互
+- 主动帮助用户使用各项交互功能`,
 }).use(
   new MCPAppsMiddleware({
     mcpServers: [
@@ -75,7 +75,7 @@ Create task boards with drag-drop cards and columns.
   }),
 );
 
-// Create CopilotKit runtime
+// 创建 CopilotKit Runtime
 const runtime = new CopilotRuntime({
   agents: {
     default: agent,
@@ -83,7 +83,7 @@ const runtime = new CopilotRuntime({
   runner: new InMemoryAgentRunner(),
 });
 
-// Create Hono endpoint
+// 创建 Hono Endpoint
 const app = createCopilotEndpoint({
   runtime,
   basePath: "/api/copilotkit",
