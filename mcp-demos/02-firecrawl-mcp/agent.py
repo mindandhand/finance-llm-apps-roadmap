@@ -1,7 +1,6 @@
 """DeepSeek + Agno + Firecrawl MCP 网页研究示例。"""
 
 import asyncio
-import os
 import sys
 from pathlib import Path
 
@@ -17,24 +16,19 @@ from llm_config import create_agno_openai_model, get_llm_api_key
 
 async def main():
     load_dotenv()
-    firecrawl_api_key = os.getenv("FIRECRAWL_API_KEY")
-
-    missing = []
     if not get_llm_api_key():
-        missing.append("DEEPSEEK_API_KEY、OPENAI_API_KEY 或 LLM_API_KEY")
-    if not firecrawl_api_key:
-        missing.append("FIRECRAWL_API_KEY")
-    if missing:
-        print(f"错误：缺少环境变量：{'；'.join(missing)}。")
+        print("错误：请设置 DEEPSEEK_API_KEY、OPENAI_API_KEY 或 LLM_API_KEY。")
         return
 
     server_params = StdioServerParameters(
         command="npx",
         args=["-y", "firecrawl-mcp"],
-        env={**os.environ, "FIRECRAWL_API_KEY": firecrawl_api_key},
     )
 
-    async with MCPTools(server_params=server_params) as mcp_tools:
+    async with MCPTools(
+        server_params=server_params,
+        include_tools=["firecrawl_scrape", "firecrawl_search"],
+    ) as mcp_tools:
         agent = Agent(
             name="FirecrawlMCPAgent",
             model=create_agno_openai_model(
@@ -43,15 +37,15 @@ async def main():
             ),
             tools=[mcp_tools],
             instructions=[
-                "根据任务选择单页抓取、搜索、站点发现、批量抓取或深度研究工具。",
-                "抓取多个页面前先说明范围，避免无边界爬取。",
+                "只使用免费的 firecrawl_scrape 和 firecrawl_search 工具。",
+                "根据任务选择单页抓取或网页搜索。",
                 "输出中文结果，并保留来源链接。",
                 "区分网页原文、工具返回数据和你的归纳判断。",
             ],
             markdown=True,
         )
 
-        print("Firecrawl MCP 已连接。输入网页研究任务，输入 exit 退出。")
+        print("Firecrawl Keyless MCP 已连接。输入网页研究任务，输入 exit 退出。")
         await agent.acli_app(
             user="你",
             emoji="🔥",

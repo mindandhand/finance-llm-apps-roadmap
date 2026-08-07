@@ -102,7 +102,7 @@ npx --version
 不要把模型密钥和 MCP 服务密钥混在一起：
 
 - 模型密钥：DashScope、DeepSeek 等推理服务的 API key。
-- MCP 服务密钥：`NOTION_API_KEY`、`GITHUB_TOKEN`、`FIRECRAWL_API_KEY`、地图服务 key 等。
+- MCP 服务密钥：`NOTION_API_KEY`、`GITHUB_TOKEN`、地图服务 key 等。02 的 Firecrawl 使用 Keyless，不需要服务密钥。
 
 ## 统一启动脚本
 
@@ -115,10 +115,29 @@ npx --version
 ./scripts/run_10.sh
 ```
 
-Python 示例默认使用 `python3`。如果依赖安装在 Conda、venv 或其他解释器中，通过 `MCP_PYTHON` 指定：
+首次运行 Python 示例时，先创建项目级虚拟环境并安装对应依赖：
+
+```bash
+./scripts/setup_python.sh 01
+./scripts/run_01.sh
+```
+
+参数可以是 `01`–`08`，也可以用 `all` 一次安装全部 Python 示例依赖：
+
+```bash
+./scripts/setup_python.sh all
+```
+
+启动脚本默认使用 `mcp-demos/.venv/bin/python`。如需指定已有 Conda、venv 或其他解释器，可以通过 `MCP_PYTHON` 覆盖：
 
 ```bash
 MCP_PYTHON=/path/to/venv/bin/python ./scripts/run_01.sh
+```
+
+如果创建 `.venv` 时也要指定基础解释器，使用：
+
+```bash
+MCP_BOOTSTRAP_PYTHON=/path/to/python3.12 ./scripts/setup_python.sh 01
 ```
 
 模型可通过以下变量覆盖：
@@ -129,12 +148,12 @@ MCP_LLM_BASE_URL=https://api.deepseek.com/v1 \
 ./scripts/run_01.sh
 ```
 
-脚本会用 `MCP_LLM_MODEL` 覆盖环境中遗留的 `OPENAI_MODEL`，避免旧模型名影响运行。它们只负责启动和必要的依赖检查，不会自动安装包。
+脚本会用 `MCP_LLM_MODEL` 覆盖环境中遗留的 `OPENAI_MODEL`，避免旧模型名影响运行。`run_*.sh` 只负责启动和依赖检查；依赖安装统一由 `setup_python.sh` 完成。
 
 | 脚本 | 启动内容 | 额外准备 |
 |---|---|---|
 | `run_01.sh` | Filesystem 终端 Agent | DeepSeek Key |
-| `run_02.sh` | Firecrawl 终端 Agent | DeepSeek、Firecrawl Key |
+| `run_02.sh` | Firecrawl Keyless 终端 Agent | 只需 DeepSeek Key；无需 Firecrawl 账号 |
 | `run_03.sh` | Notion 终端 Agent | DeepSeek、Notion Key；页面 ID 可作为参数 |
 | `run_04.sh` | GitHub Streamlit | Docker、GitHub Token |
 | `run_05.sh` | Browser Streamlit | Playwright、`mcp_agent.secrets.yaml` |

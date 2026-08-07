@@ -1,13 +1,13 @@
 # 02：用 Agno 和 Firecrawl MCP 研究网页
 
-本节在 stdio MCP 的基础上增加外部服务密钥和长文本结果。Agno Agent 负责选择工具，Firecrawl MCP Server 负责访问网页，DeepSeek 汇总返回内容并生成中文结果。
+本节使用 Firecrawl Keyless 免费模式抓取网页。Agno Agent 负责选择工具，Firecrawl MCP Server 负责访问网页，DeepSeek 汇总返回内容并生成中文结果。无需注册 Firecrawl 账号，也不需要 `FIRECRAWL_API_KEY`。
 
 ## 学习目标
 
-- 通过 `env` 把 `FIRECRAWL_API_KEY` 注入 MCP Server 子进程；
-- 根据任务选择单页抓取、搜索、站点发现、批量抓取或深度研究工具；
-- 控制抓取范围，避免无限爬取、超时和不必要的 Token 消耗；
-- 区分 Firecrawl API Key 与模型 API Key；
+- 通过 Keyless 模式连接 Firecrawl MCP；
+- 根据任务选择免费开放的单页抓取或网页搜索工具；
+- 控制搜索结果和页面内容，避免不必要的 Token 消耗；
+- 理解 Keyless 免费额度与 DeepSeek 模型密钥的职责边界；
 - 在结果中保留来源并区分原文与模型判断。
 
 ## 默认模型
@@ -37,7 +37,14 @@ Firecrawl MCP Server
 Firecrawl API → 网页内容
 ```
 
-`DEEPSEEK_API_KEY` 供模型服务使用，`FIRECRAWL_API_KEY` 只传给 Firecrawl MCP 子进程。两类密钥职责不同。
+`DEEPSEEK_API_KEY` 只供模型服务使用。Firecrawl MCP 直接使用 Keyless 免费额度，不接收任何 Firecrawl 账号凭证。官方当前提供每月 1,000 个免费 Credits，额度和计费规则以 Firecrawl 官方页面为准。
+
+Keyless MCP 当前只开放：
+
+- `firecrawl_scrape`：抓取单个网页；
+- `firecrawl_search`：搜索网页。
+
+Crawl、Map、Extract、批量抓取和深度研究等工具需要 API Key，本示例不会把它们暴露给 Agent。
 
 ## 运行
 
@@ -51,7 +58,6 @@ pip install -r requirements.txt
 DEEPSEEK_API_KEY=your-deepseek-key
 OPENAI_BASE_URL=https://api.deepseek.com/v1
 OPENAI_MODEL=deepseek-v4-pro
-FIRECRAWL_API_KEY=your-firecrawl-key
 ```
 
 确认 Node.js 可用并启动：
@@ -62,23 +68,22 @@ npx --version
 python agent.py
 ```
 
-程序会校验模型 Key 和 Firecrawl Key，缺少任意一项都会在启动 MCP Server 前退出。
+程序只校验模型 Key。Firecrawl 部分不登录账号，也不读取 API Key。
 
 ## 可以尝试
 
 - “抓取 `https://example.com` 并用中文概括。”
-- “找出某个文档站点的主要页面，但最多返回 20 个 URL。”
 - “搜索最近的 MCP 官方更新，列出来源和发布日期。”
-- “从给定商品页提取名称、价格和规格，无法确认的字段留空。”
+- “抓取给定商品页，整理页面中明确出现的名称、价格和规格。”
 
-进行 Crawl 或批量抓取前，应明确域名、最大页面数、深度和输出字段。不要默认抓取整个网站。
+Keyless 模式按 IP 限速。查询时应限制搜索结果数量，不要连续重复抓取同一页面。
 
 ## 阅读代码时重点关注
 
-1. 启动时如何分别校验两类 API Key。
-2. `env={**os.environ, ...}` 如何把 Firecrawl Key 传入子进程。
-3. `MCPTools` 如何连接 `firecrawl-mcp`。
-4. instructions 如何限制抓取范围并要求保留来源。
+1. 启动时如何只校验模型 API Key。
+2. `MCPTools` 如何在无 Firecrawl 凭证的情况下连接 `firecrawl-mcp`。
+3. `include_tools` 如何只暴露两个 Keyless 免费工具。
+4. instructions 如何限制工具范围并要求保留来源。
 5. `agent.acli_app()` 如何提供流式命令行对话。
 
 ## 金融场景改造
@@ -87,8 +92,13 @@ python agent.py
 
 ## 常见问题
 
-- 缺少环境变量：检查 `.env` 的两个 Key。
-- Firecrawl 返回鉴权错误：确认 Key 有效且账户额度充足。
+- 缺少环境变量：检查 DeepSeek 模型 Key。
+- Firecrawl 返回额度错误：Keyless 免费额度可能已用完，等待下个额度周期或检查官方政策。
 - 抓取失败：检查目标站点限制、robots 规则和 Firecrawl 支持情况。
-- 返回内容太长：缩小页面范围，优先使用结构化抽取。
+- 返回内容太长：缩小问题范围，并要求模型只保留必要字段。
 - `npx` 启动失败：检查 Node.js、网络和 npm 包下载权限。
+
+## 官方参考
+
+- [Firecrawl Keyless 说明](https://www.firecrawl.dev/blog/firecrawl-keyless-launch)
+- [Firecrawl 免费额度与计费](https://www.firecrawl.dev/pricing)
