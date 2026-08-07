@@ -55,8 +55,26 @@ class DemoScriptsTest(unittest.TestCase):
         overview = (MCP_DEMOS / "README.md").read_text(encoding="utf-8")
         self.assertIn("scripts/run_01.sh", overview)
         self.assertIn("scripts/run_10.sh", overview)
+        self.assertIn("scripts/setup_python.sh 01", overview)
         self.assertIn("MCP_PYTHON", overview)
         self.assertIn("MCP_LLM_MODEL", overview)
+
+    def test_python_launchers_prefer_project_virtualenv(self):
+        for number in ("01", "02", "03", "04", "05", "06", "07", "08"):
+            script = (SCRIPTS / f"run_{number}.sh").read_text(encoding="utf-8")
+            with self.subTest(script=f"run_{number}.sh"):
+                self.assertIn('$SCRIPT_DIR/../.venv/bin/python', script)
+
+    def test_python_setup_script_is_executable_and_valid(self):
+        script = SCRIPTS / "setup_python.sh"
+        self.assertTrue(script.is_file())
+        self.assertTrue(os.access(script, os.X_OK))
+        result = subprocess.run(
+            ["bash", "-n", str(script)],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
 
 
 if __name__ == "__main__":
