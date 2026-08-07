@@ -104,6 +104,58 @@ npx --version
 - 模型密钥：DashScope、DeepSeek 等推理服务的 API key。
 - MCP 服务密钥：`NOTION_API_KEY`、`GITHUB_TOKEN`、`FIRECRAWL_API_KEY`、地图服务 key 等。
 
+## 统一启动脚本
+
+`scripts/` 参考 `qlib-demos/script/`，按示例编号提供启动入口。脚本会自动切换到对应目录，并为已经支持 OpenAI-compatible API 的示例设置 DeepSeek 模型。
+
+```bash
+./scripts/run_01.sh
+./scripts/run_02.sh
+# ...
+./scripts/run_10.sh
+```
+
+Python 示例默认使用 `python3`。如果依赖安装在 Conda、venv 或其他解释器中，通过 `MCP_PYTHON` 指定：
+
+```bash
+MCP_PYTHON=/path/to/venv/bin/python ./scripts/run_01.sh
+```
+
+模型可通过以下变量覆盖：
+
+```bash
+MCP_LLM_MODEL=deepseek-v4-pro \
+MCP_LLM_BASE_URL=https://api.deepseek.com/v1 \
+./scripts/run_01.sh
+```
+
+脚本会用 `MCP_LLM_MODEL` 覆盖环境中遗留的 `OPENAI_MODEL`，避免旧模型名影响运行。它们只负责启动和必要的依赖检查，不会自动安装包。
+
+| 脚本 | 启动内容 | 额外准备 |
+|---|---|---|
+| `run_01.sh` | Filesystem 终端 Agent | DeepSeek Key |
+| `run_02.sh` | Firecrawl 终端 Agent | DeepSeek、Firecrawl Key |
+| `run_03.sh` | Notion 终端 Agent | DeepSeek、Notion Key；页面 ID 可作为参数 |
+| `run_04.sh` | GitHub Streamlit | Docker、GitHub Token |
+| `run_05.sh` | Browser Streamlit | Playwright、`mcp_agent.secrets.yaml` |
+| `run_06.sh` | Multi-MCP 终端 Agent | GitHub、Perplexity、Calendar/Gmail 授权 |
+| `run_07.sh` | Router Streamlit | 当前代码仍需要 Anthropic Key |
+| `run_08.sh` | Travel Planner Streamlit | 页面中输入 DeepSeek 和 Google Maps Key |
+| `run_09.sh` | MCP Apps Server + Next.js | 两个目录都先执行 `npm install` |
+| `run_10.sh` | MCP App Builder monorepo | `pnpm install`；生成应用还需 E2B Key |
+
+例如向 03 传入 Notion 页面 ID：
+
+```bash
+./scripts/run_03.sh your-notion-page-id
+```
+
+Streamlit 参数直接追加在脚本后面：
+
+```bash
+./scripts/run_04.sh --server.port 8504
+```
+
 ## 学习路径
 
 | # | 目录 | 本节新增内容 | 前置示例 |
