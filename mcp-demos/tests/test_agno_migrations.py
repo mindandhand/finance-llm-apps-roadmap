@@ -22,6 +22,12 @@ class AgnoMigrationTest(unittest.TestCase):
         self.assertIn("01-filesystem-mcp", overview)
         self.assertIn("02-firecrawl-mcp", overview)
 
+    def test_shared_model_config_is_deepseek_compatible(self):
+        config = (MCP_DEMOS / "llm_config.py").read_text(encoding="utf-8")
+        self.assertIn('DEFAULT_MODEL = "deepseek-v4-pro"', config)
+        self.assertIn('"system": "system"', config)
+        self.assertIn('"model": "assistant"', config)
+
     def assert_agno_demo(self, directory: str, model: str):
         demo_dir = MCP_DEMOS / directory
         source = (demo_dir / "agent.py").read_text(encoding="utf-8")
