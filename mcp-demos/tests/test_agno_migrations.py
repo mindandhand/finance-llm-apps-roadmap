@@ -25,6 +25,9 @@ class AgnoMigrationTest(unittest.TestCase):
 
         self.assertNotIn("FIRECRAWL_API_KEY", source)
         self.assertNotIn("FIRECRAWL_API_KEY", launcher)
+        self.assertIn(
+            'include_tools=["firecrawl_scrape", "firecrawl_search"]', source
+        )
         self.assertIn("Keyless", readme)
         self.assertIn("无需注册", readme)
 
