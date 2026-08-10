@@ -1,0 +1,19 @@
+services:
+  neo4j:
+    image: ${NEO4J_IMAGE:-docker.m.daocloud.io/library/neo4j:5.26-community}
+    container_name: agentic-finance-kg-neo4j
+    ports:
+      - "7475:7474"
+      - "7688:7687"
+    environment:
+      NEO4J_AUTH: neo4j/password
+    volumes:
+      - agentic_finance_kg_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:7474 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  agentic_finance_kg_data:

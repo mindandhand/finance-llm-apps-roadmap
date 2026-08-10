@@ -1,0 +1,4 @@
+supplier_name,customer_name,component,annual_purchase_ratio
+华星科技,远航汽车,动力控制模块,0.38
+精工电池,远航汽车,动力电池包,0.27
+先进芯片,华星科技,车规级芯片,0.61
