@@ -62,7 +62,23 @@ st.markdown(
     :root { --ink:#14231f; --paper:#f4f0e6; --jade:#087f5b; --amber:#d97706; }
     .stApp { background: linear-gradient(135deg,#f7f4ec 0%,#edf4ef 58%,#e4eee8 100%); color:var(--ink); }
     [data-testid="stSidebar"] { background:#14231f; }
-    [data-testid="stSidebar"] * { color:#f4f0e6 !important; }
+    /* 侧栏标题保持浅色；输入框本身是浅色背景，必须恢复深色文字。 */
+    [data-testid="stSidebar"] label,
+    [data-testid="stSidebar"] h1,
+    [data-testid="stSidebar"] h2,
+    [data-testid="stSidebar"] h3,
+    [data-testid="stSidebar"] p { color:#f4f0e6 !important; }
+    [data-testid="stSidebar"] input,
+    [data-testid="stSidebar"] textarea,
+    [data-testid="stSidebar"] [data-baseweb="select"] * {
+      color:#14231f !important;
+      -webkit-text-fill-color:#14231f !important;
+    }
+    [data-testid="stSidebar"] input::placeholder,
+    [data-testid="stSidebar"] textarea::placeholder {
+      color:#64746f !important;
+      -webkit-text-fill-color:#64746f !important;
+    }
     .hero { border-left:7px solid var(--jade); padding:1.2rem 1.5rem; margin:.5rem 0 1.4rem;
       background:rgba(255,255,255,.72); box-shadow:0 16px 45px rgba(20,35,31,.08); }
     .eyebrow { color:var(--jade); font-weight:800; letter-spacing:.16em; font-size:.75rem; }
@@ -254,11 +270,27 @@ with build_tab:
             "awaiting_fact_approval": "批准事实类型并构图",
         }
         if status == "awaiting_clarification":
-            clarification = st.text_input("回答意图 Agent")
-            if st.button("提交补充信息", type="primary", use_container_width=True):
+            # 使用 form 保留用户正在输入的答案，并允许回车恢复同一 LangGraph thread。
+            with st.form("clarification_form", clear_on_submit=True):
+                clarification = st.text_area(
+                    "回答意图 Agent",
+                    key="clarification_answer",
+                    placeholder="补充研究对象、关系范围、时间范围或希望回答的问题……",
+                    height=100,
+                )
+                clarification_submitted = st.form_submit_button(
+                    "提交补充信息并继续",
+                    type="primary",
+                    use_container_width=True,
+                )
+            if clarification_submitted:
                 try:
+                    if not clarification.strip():
+                        raise ValueError("请先填写对澄清问题的回答。")
+                    if not st.session_state.get("workflow_graph"):
+                        raise RuntimeError("工作流会话已失效，请重新启动完整构图工作流。")
                     st.session_state.workflow_result = st.session_state.workflow_graph.invoke(
-                        Command(resume={"message": clarification}),
+                        Command(resume={"message": clarification.strip()}),
                         config=st.session_state.workflow_config,
                     )
                     st.rerun()

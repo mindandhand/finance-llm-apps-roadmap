@@ -324,6 +324,8 @@ class ParityState(TypedDict, total=False):
     entity_feedback: list[str]
     fact_feedback: list[str]
     perceived_goal: dict[str, str]
+    # 必须声明为图状态字段，否则 LangGraph 会在进入 clarification 节点前过滤它。
+    clarification_question: str
     goal_approved_by: str
     selected_files: list[str]
     file_reasoning: str

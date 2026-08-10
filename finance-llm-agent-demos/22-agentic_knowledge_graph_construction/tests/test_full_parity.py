@@ -248,6 +248,53 @@ class FullParityTests(unittest.TestCase):
         self.assertEqual("研究员", constructed[0]["entity_session"].approved_by)
         self.assertEqual("研究员", constructed[0]["fact_session"].approved_by)
 
+    def test_parity_workflow_resumes_after_clarification_answer(self):
+        calls = []
+
+        def perceive(messages, feedback):
+            calls.append(messages)
+            if len(messages) == 1:
+                return {
+                    "needs_clarification": True,
+                    "question": "需要分析哪类公司关系？",
+                }
+            return {
+                "needs_clarification": False,
+                "kind_of_graph": "供应链图谱",
+                "graph_description": "分析上市公司的供应链风险传导关系",
+            }
+
+        graph = build_parity_workflow(
+            perceive_goal=perceive,
+            suggest_files=lambda *_: {"selected_files": ["companies.csv"], "reasoning": "实体数据"},
+            propose_construction_plan=lambda *_: ConstructionPlan().propose_node(
+                NodeConstructionRule("companies.csv", "Company", "company_code", ["company_name"])
+            ),
+            review_construction_plan=lambda *_: [],
+            propose_entity_types=lambda *_: ["Company"],
+            propose_fact_types=lambda *_: [
+                FactTypeDefinition("Company", "SUPPLIES", "Company", "供应关系")
+            ],
+            construct_graph=lambda _: 0,
+        )
+        config = {"configurable": {"thread_id": "clarification-resume"}}
+        pending = graph.invoke(
+            {
+                "messages": [{"role": "user", "content": "构建一个金融图谱"}],
+                "available_files": ["companies.csv"],
+                "status": "new",
+            },
+            config=config,
+        )
+
+        self.assertEqual("awaiting_clarification", pending["status"])
+        resumed = graph.invoke(
+            Command(resume={"message": "分析上市公司供应链"}), config=config
+        )
+
+        self.assertEqual("awaiting_goal_approval", resumed["status"])
+        self.assertEqual("分析上市公司供应链", calls[-1][-1]["content"])
+
 
 if __name__ == "__main__":
     unittest.main()
