@@ -8,6 +8,9 @@ from kg_construction import collect_facts_from_files
 from structured_schema_proposal import CsvMappingRule, StructuredGraphPlan, revise_structured_plan
 from unstructured_schema_proposal import UnstructuredGraphPlan
 from user_intent import UserIntentSession
+from workflow import build_full_construction_workflow
+
+from langgraph.types import Command
 
 
 class PreservedWorkflowTests(unittest.TestCase):
@@ -140,6 +143,77 @@ class PreservedWorkflowTests(unittest.TestCase):
 
         self.assertEqual(["RiskEvent"], unstructured.entity_types)
         self.assertEqual(["EXPOSED_TO"], unstructured.fact_types)
+
+    def test_full_workflow_preserves_each_human_approval_boundary(self):
+        constructed = []
+        structured = StructuredGraphPlan(
+            rules=[
+                CsvMappingRule(
+                    "relationships.csv", "supplier", "Company", "SUPPLIES", "customer", "Company"
+                )
+            ],
+            rationale="供应链关系",
+        )
+        revised = StructuredGraphPlan(
+            rules=[
+                CsvMappingRule(
+                    "relationships.csv",
+                    "supplier",
+                    "Company",
+                    "CORE_SUPPLIER_OF",
+                    "customer",
+                    "Company",
+                )
+            ],
+            rationale="按 Critic 意见明确核心供应关系",
+            resolved_findings=["SUPPLIES 过于宽泛"],
+        )
+        unstructured = UnstructuredGraphPlan(
+            ["Company", "RiskEvent"],
+            ["EXPOSED_TO"],
+            "markdown_paragraph",
+            "抽取风险公告",
+        )
+        graph = build_full_construction_workflow(
+            perceive_goal=lambda message: {
+                "kind_of_graph": "上市公司风险图谱",
+                "graph_description": message,
+            },
+            suggest_files=lambda goal, files: {
+                "selected_files": files,
+                "reasoning": "覆盖关系与风险证据",
+            },
+            propose_structured=lambda goal, files: structured,
+            review_structured=lambda goal, plan: ["SUPPLIES 过于宽泛"],
+            revise_structured=lambda goal, plan, findings: revised,
+            propose_unstructured=lambda goal, files: unstructured,
+            construct_graph=lambda state: constructed.append(state) or 2,
+        )
+        config = {"configurable": {"thread_id": "full-preserved-workflow"}}
+        initial = {
+            "intent_message": "追踪上市公司供应链风险",
+            "available_files": ["relationships.csv", "risk.md"],
+            "status": "new",
+        }
+
+        pending = graph.invoke(initial, config=config)
+        self.assertEqual("awaiting_goal_approval", pending["status"])
+
+        pending = graph.invoke(Command(resume={"approved": True, "reviewer": "研究员"}), config=config)
+        self.assertEqual("awaiting_file_approval", pending["status"])
+
+        pending = graph.invoke(Command(resume={"approved": True, "reviewer": "研究员"}), config=config)
+        self.assertEqual("awaiting_structured_approval", pending["status"])
+        self.assertEqual("CORE_SUPPLIER_OF", pending["structured_plan"]["rules"][0]["relation"])
+
+        pending = graph.invoke(Command(resume={"approved": True, "reviewer": "研究员"}), config=config)
+        self.assertEqual("awaiting_unstructured_approval", pending["status"])
+
+        completed = graph.invoke(Command(resume={"approved": True, "reviewer": "研究员"}), config=config)
+        self.assertEqual("completed", completed["status"])
+        self.assertEqual(2, completed["written_facts"])
+        self.assertEqual("研究员", constructed[0]["structured_plan"]["approved_by"])
+        self.assertEqual("研究员", constructed[0]["unstructured_plan"]["approved_by"])
 
 
 if __name__ == "__main__":
