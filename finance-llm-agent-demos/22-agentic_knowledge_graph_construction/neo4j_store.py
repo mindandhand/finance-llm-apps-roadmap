@@ -51,6 +51,10 @@ class Neo4jGraphStore:
             fact.evidence.locator,
             fact.evidence.excerpt,
         )
+        # Markdown 证据定位采用“块 N”格式；转为从零开始的 chunk_index 后，
+        # 可把抽取证据重新连回原文块，保留端到端溯源链。
+        chunk_match = re.search(r"块\s*(\d+)", fact.evidence.locator)
+        chunk_index = int(chunk_match.group(1)) - 1 if chunk_match else None
         with self.driver.session() as session:
             session.run(
                 """
@@ -68,6 +72,12 @@ class Neo4jGraphStore:
                     e.excerpt = $excerpt,
                     e.confidence = $confidence
                 MERGE (e)-[:SUPPORTS]->(f)
+                WITH e
+                OPTIONAL MATCH (chunk:DocumentChunk {
+                    source_name: $source_name, chunk_index: $chunk_index
+                })
+                FOREACH (_ IN CASE WHEN chunk IS NULL THEN [] ELSE [1] END |
+                    MERGE (chunk)-[:CONTAINS_EVIDENCE]->(e))
                 """,
                 source=fact.source,
                 source_type=fact.source_type,
@@ -80,6 +90,7 @@ class Neo4jGraphStore:
                 locator=fact.evidence.locator,
                 excerpt=fact.evidence.excerpt,
                 confidence=fact.evidence.confidence,
+                chunk_index=chunk_index,
             )
 
     def upsert_facts(self, facts: list[ExtractedFact]) -> int:
@@ -166,9 +177,15 @@ class Neo4jGraphStore:
         return len(chunks)
 
     def correlate_extracted_entities(
-        self, label: str, entity_key: str, domain_key: str
+        self,
+        label: str,
+        entity_key: str,
+        domain_key: str,
+        similarity: float = 0.9,
     ) -> int:
-        """连接抽取 Entity 与领域节点；标准化后的精确值匹配可重复执行。"""
+        """以 Jaro-Winkler 模糊匹配连接抽取实体与结构化领域节点。"""
+        if not 0.0 <= similarity <= 1.0:
+            raise ValueError("相似度阈值必须位于 0 到 1 之间。")
         safe_label = self._identifier(label)
         safe_entity_key = self._identifier(entity_key)
         safe_domain_key = self._identifier(domain_key)
@@ -177,14 +194,49 @@ class Neo4jGraphStore:
                 f"""
                 MATCH (entity:Entity), (domain:`{safe_label}`)
                 WHERE entity.type = $label
-                  AND toLower(trim(toString(entity.`{safe_entity_key}`))) =
+                  AND apoc.text.jaroWinklerDistance(
+                      toLower(trim(toString(entity.`{safe_entity_key}`))),
                       toLower(trim(toString(domain.`{safe_domain_key}`)))
+                  ) <= $distance
                 MERGE (entity)-[r:CORRESPONDS_TO]->(domain)
                 RETURN count(r) AS relationship_count
                 """,
                 label=label,
+                distance=round(1.0 - similarity, 10),
             ).single()
         return int(row["relationship_count"]) if row else 0
+
+    def find_extracted_entity_labels(self) -> list[str]:
+        """返回非结构化抽取阶段已经产生的实体类型。"""
+        with self.driver.session() as session:
+            row = session.run(
+                "MATCH (n:Entity) RETURN collect(DISTINCT n.type) AS labels"
+            ).single()
+        return list(row["labels"] or []) if row else []
+
+    def find_extracted_entity_keys(self, label: str) -> list[str]:
+        """返回指定抽取实体类型实际拥有的属性键。"""
+        with self.driver.session() as session:
+            row = session.run(
+                """
+                MATCH (n:Entity {type: $label})
+                UNWIND keys(n) AS key
+                WITH DISTINCT key WHERE key <> 'type'
+                RETURN collect(key) AS keys
+                """,
+                label=label,
+            ).single()
+        return list(row["keys"] or []) if row else []
+
+    def find_domain_keys(self, label: str) -> list[str]:
+        """返回结构化领域节点的属性键，供 Agent 提议关联字段。"""
+        safe_label = self._identifier(label)
+        with self.driver.session() as session:
+            row = session.run(
+                f"MATCH (n:`{safe_label}`) UNWIND keys(n) AS key "
+                "RETURN collect(DISTINCT key) AS keys"
+            ).single()
+        return list(row["keys"] or []) if row else []
 
     def retrieve_chunks(self, question: str, top_k: int = 5) -> list[Evidence]:
         """对已保存的 Chunk embedding 做余弦检索，补充图路径之外的原文证据。"""

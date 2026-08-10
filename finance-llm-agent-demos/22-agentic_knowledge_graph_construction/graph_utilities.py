@@ -28,8 +28,21 @@ class GraphUtilities:
     def store_chunks(self, chunks: list[EmbeddedChunk]) -> int:
         return self.store.upsert_chunks(chunks)
 
-    def correlate_entities(self, label: str, entity_key: str, domain_key: str) -> int:
-        return self.store.correlate_extracted_entities(label, entity_key, domain_key)
+    def correlate_entities(
+        self, label: str, entity_key: str, domain_key: str, similarity: float = 0.9
+    ) -> int:
+        return self.store.correlate_extracted_entities(
+            label, entity_key, domain_key, similarity
+        )
+
+    def extracted_entity_labels(self) -> list[str]:
+        return self.store.find_extracted_entity_labels()
+
+    def extracted_entity_keys(self, label: str) -> list[str]:
+        return self.store.find_extracted_entity_keys(label)
+
+    def domain_keys(self, label: str) -> list[str]:
+        return self.store.find_domain_keys(label)
 
     def retrieve(self, question: str, strategy: str = "multi_hop", max_hops: int = 2) -> RetrievalResult:
         if strategy not in {"multi_hop", "direct"}:

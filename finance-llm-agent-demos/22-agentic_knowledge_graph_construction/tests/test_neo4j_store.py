@@ -67,6 +67,7 @@ class Neo4jGraphStoreTests(unittest.TestCase):
         query, parameters = session.calls[0]
         self.assertIn("MERGE (f:Fact", query)
         self.assertIn("MERGE (e:Evidence", query)
+        self.assertIn("CONTAINS_EVIDENCE", query)
         self.assertNotIn("SUPPLIES", query)
         self.assertEqual("SUPPLIES", parameters["relation"])
         self.assertEqual(64, len(parameters["fact_id"]))
