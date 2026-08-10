@@ -146,6 +146,7 @@ class PreservedWorkflowTests(unittest.TestCase):
 
     def test_full_workflow_preserves_each_human_approval_boundary(self):
         constructed = []
+        reviewed_relations = []
         structured = StructuredGraphPlan(
             rules=[
                 CsvMappingRule(
@@ -184,7 +185,8 @@ class PreservedWorkflowTests(unittest.TestCase):
                 "reasoning": "覆盖关系与风险证据",
             },
             propose_structured=lambda goal, files: structured,
-            review_structured=lambda goal, plan: ["SUPPLIES 过于宽泛"],
+            review_structured=lambda goal, plan: reviewed_relations.append(plan.rules[0].relation)
+            or (["SUPPLIES 过于宽泛"] if plan.rules[0].relation == "SUPPLIES" else []),
             revise_structured=lambda goal, plan, findings: revised,
             propose_unstructured=lambda goal, files: unstructured,
             construct_graph=lambda state: constructed.append(state) or 2,
@@ -214,6 +216,44 @@ class PreservedWorkflowTests(unittest.TestCase):
         self.assertEqual(2, completed["written_facts"])
         self.assertEqual("研究员", constructed[0]["structured_plan"]["approved_by"])
         self.assertEqual("研究员", constructed[0]["unstructured_plan"]["approved_by"])
+        self.assertEqual(["SUPPLIES", "CORE_SUPPLIER_OF"], reviewed_relations)
+
+    def test_full_workflow_skips_structured_branch_for_markdown_only(self):
+        constructed = []
+        graph = build_full_construction_workflow(
+            perceive_goal=lambda message: {
+                "kind_of_graph": "风险事件图谱",
+                "graph_description": message,
+            },
+            suggest_files=lambda goal, files: {"selected_files": files, "reasoning": "风险证据"},
+            propose_structured=lambda goal, files: self.fail("Markdown-only 不应进入结构化分支"),
+            review_structured=lambda goal, plan: self.fail("Markdown-only 不应进入 Critic"),
+            revise_structured=lambda goal, plan, findings: self.fail("Markdown-only 不应修订结构化计划"),
+            propose_unstructured=lambda goal, files: UnstructuredGraphPlan(
+                ["Company", "RiskEvent"],
+                ["EXPOSED_TO"],
+                "markdown_paragraph",
+                "风险公告抽取",
+            ),
+            construct_graph=lambda state: constructed.append(state) or 1,
+        )
+        config = {"configurable": {"thread_id": "markdown-only-workflow"}}
+
+        pending = graph.invoke(
+            {
+                "intent_message": "追踪公告风险",
+                "available_files": ["risk.md"],
+                "status": "new",
+            },
+            config=config,
+        )
+        pending = graph.invoke(Command(resume={"approved": True, "reviewer": "研究员"}), config=config)
+        pending = graph.invoke(Command(resume={"approved": True, "reviewer": "研究员"}), config=config)
+        self.assertEqual("awaiting_unstructured_approval", pending["status"])
+
+        completed = graph.invoke(Command(resume={"approved": True, "reviewer": "研究员"}), config=config)
+        self.assertEqual("completed", completed["status"])
+        self.assertNotIn("structured_plan", constructed[0])
 
 
 if __name__ == "__main__":
