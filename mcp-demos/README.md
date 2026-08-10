@@ -112,7 +112,7 @@ npx --version
 ./scripts/run_01.sh
 ./scripts/run_02.sh
 # ...
-./scripts/run_10.sh
+./scripts/run_09.sh
 ```
 
 首次运行 Python 示例时，先创建项目级虚拟环境并安装对应依赖：
@@ -159,9 +159,8 @@ MCP_LLM_BASE_URL=https://api.deepseek.com/v1 \
 | `run_05.sh` | Browser Streamlit | Playwright、`mcp_agent.secrets.yaml` |
 | `run_06.sh` | Multi-MCP 终端 Agent | GitHub、Perplexity、Calendar/Gmail 授权 |
 | `run_07.sh` | Router Streamlit | 当前代码仍需要 Anthropic Key |
-| `run_08.sh` | Travel Planner Streamlit | 页面中输入 DeepSeek 和 Google Maps Key |
-| `run_09.sh` | MCP Apps Server + Next.js | 两个目录都先执行 `npm install` |
-| `run_10.sh` | MCP App Builder monorepo | `pnpm install`；生成应用还需 E2B Key |
+| `run_08.sh` | MCP Apps Server + Next.js | 两个目录都先执行 `npm install` |
+| `run_09.sh` | MCP App Builder monorepo | `pnpm install`；生成应用还需 E2B Key |
 
 例如向 03 传入 Notion 页面 ID：
 
@@ -186,9 +185,8 @@ Streamlit 参数直接追加在脚本后面：
 | 5 | [`05-browser-mcp-agent`](05-browser-mcp-agent) | Playwright 浏览器导航、点击、截图和抽取 | 04 |
 | 6 | [`06-multi-mcp-agent`](06-multi-mcp-agent) | 一个 Agent 同时连接多个 MCP Server | 03–05 |
 | 7 | [`07-multi-mcp-agent-router`](07-multi-mcp-agent-router) | Router 选择专业 Agent 和最小工具集合 | 06 |
-| 8 | [`08-travel-planner-mcp-agent-team`](08-travel-planner-mcp-agent-team) | 多 MCP 与普通工具组成完整业务流程 | 06–07 |
-| 9 | [`09-mcp-apps-generative-ui-showcase`](09-mcp-apps-generative-ui-showcase) | Tool 返回可渲染的 UI Resource | 01–08 |
-| 10 | [`10-ai-mcp-app-builder`](10-ai-mcp-app-builder) | Agent 在沙箱中生成并运行 MCP App | 09 |
+| 8 | [`08-mcp-apps-generative-ui-showcase`](08-mcp-apps-generative-ui-showcase) | Tool 返回可渲染的 UI Resource | 01–07 |
+| 9 | [`09-ai-mcp-app-builder`](09-ai-mcp-app-builder) | Agent 在沙箱中生成并运行 MCP App | 08 |
 
 ## 每个示例都问四个问题
 

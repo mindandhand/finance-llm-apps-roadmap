@@ -30,13 +30,12 @@ requirements_for() {
     05) echo "$MCP_DEMOS_DIR/05-browser-mcp-agent/requirements.txt" ;;
     06) echo "$MCP_DEMOS_DIR/06-multi-mcp-agent/requirements.txt" ;;
     07) echo "$MCP_DEMOS_DIR/07-multi-mcp-agent-router/requirements.txt" ;;
-    08) echo "$MCP_DEMOS_DIR/08-travel-planner-mcp-agent-team/requirements.txt" ;;
   esac
 }
 
 pip_args=(install --no-cache-dir)
 if [[ "$DEMO_NUMBER" == "all" ]]; then
-  for number in 01 02 03 04 05 06 07 08; do
+  for number in 01 02 03 04 05 06 07; do
     pip_args+=(-r "$(requirements_for "$number")")
   done
 else

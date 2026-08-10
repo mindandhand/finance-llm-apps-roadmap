@@ -52,15 +52,11 @@ class BrowserDemoLocalizationTest(unittest.TestCase):
                 ("代码审查员", "根据关键词将查询路由"),
                 ("Code Reviewer", "Route a query to the best agent"),
             ),
-            "08-travel-planner-mcp-agent-team/app.py": (
-                ("立即为以下信息创建", "配置页面"),
-                ("IMMEDIATELY create", "Configure the page"),
-            ),
-            "09-mcp-apps-generative-ui-showcase/src/app/page.tsx": (
+            "08-mcp-apps-generative-ui-showcase/src/app/page.tsx": (
                 ("从纽约到洛杉矶的航班", "发送消息并运行 Agent"),
                 ("Book a flight from New York", "Send a message to the chat"),
             ),
-            "10-ai-mcp-app-builder/apps/web/app/constants/chatStarters.ts": (
+            "09-ai-mcp-app-builder/apps/web/app/constants/chatStarters.ts": (
                 ("井字棋", "四个起始 Prompt"),
                 ("Tic tac toe", "Four starter prompts"),
             ),

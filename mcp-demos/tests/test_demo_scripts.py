@@ -15,9 +15,8 @@ EXPECTED_COMMANDS = {
     "05": "streamlit run main.py",
     "06": "multi_mcp_agent.py",
     "07": "streamlit run agent_forge.py",
-    "08": "streamlit run app.py",
-    "09": "npm run dev",
-    "10": "pnpm dev",
+    "08": "npm run dev",
+    "09": "pnpm dev",
 }
 
 
@@ -54,13 +53,13 @@ class DemoScriptsTest(unittest.TestCase):
     def test_overview_documents_numbered_launchers(self):
         overview = (MCP_DEMOS / "README.md").read_text(encoding="utf-8")
         self.assertIn("scripts/run_01.sh", overview)
-        self.assertIn("scripts/run_10.sh", overview)
+        self.assertIn("scripts/run_09.sh", overview)
         self.assertIn("scripts/setup_python.sh 01", overview)
         self.assertIn("MCP_PYTHON", overview)
         self.assertIn("MCP_LLM_MODEL", overview)
 
     def test_python_launchers_prefer_project_virtualenv(self):
-        for number in ("01", "02", "03", "04", "05", "06", "07", "08"):
+        for number in ("01", "02", "03", "04", "05", "06", "07"):
             script = (SCRIPTS / f"run_{number}.sh").read_text(encoding="utf-8")
             with self.subTest(script=f"run_{number}.sh"):
                 self.assertIn('$SCRIPT_DIR/../.venv/bin/python', script)
