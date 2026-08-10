@@ -20,6 +20,7 @@ class GraphUtilities:
         return {"status": "success", "message": "Neo4j is ready"}
 
     def construct(self, facts: list[ExtractedFact]) -> int:
+        """写入经过 Schema 审批后抽取出的事实集合。"""
         return self.store.upsert_facts(facts)
 
     def construct_domain_graph(self, batch: DomainConstructionBatch) -> int:
@@ -31,6 +32,7 @@ class GraphUtilities:
     def correlate_entities(
         self, label: str, entity_key: str, domain_key: str, similarity: float = 0.9
     ) -> int:
+        """按候选属性和阈值连接文本实体与结构化领域节点。"""
         return self.store.correlate_extracted_entities(
             label, entity_key, domain_key, similarity
         )
@@ -45,8 +47,10 @@ class GraphUtilities:
         return self.store.find_domain_keys(label)
 
     def retrieve(self, question: str, strategy: str = "multi_hop", max_hops: int = 2) -> RetrievalResult:
+        """融合图路径与文档向量结果，输出统一的路径、引用和回答上下文。"""
         if strategy not in {"multi_hop", "direct"}:
             raise ValueError(f"不支持的 GraphRAG 检索策略：{strategy}")
+        # direct 限制图扩展深度；multi_hop 保留风险传播等链式推理能力。
         graph_result = self.store.retrieve(question, 1 if strategy == "direct" else max_hops)
         chunks = self.store.retrieve_chunks(question)
         if not chunks:
@@ -83,6 +87,7 @@ class GraphUtilities:
         return self.send_query("RETURN apoc.version() AS version")
 
     def drop_indexes_and_constraints(self, confirmation: str) -> None:
+        # 这是破坏性管理操作，固定确认短语防止 Agent 或误点击直接执行。
         if confirmation != "确认删除索引和约束":
             raise ValueError("删除索引和约束需要输入：确认删除索引和约束")
         with self.store.driver.session() as session:

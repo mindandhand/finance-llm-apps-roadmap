@@ -32,20 +32,24 @@ class FileSample:
 
 
 def tool_success(key: str, value: object) -> dict[str, object]:
+    """统一成功响应，使对话 Agent 不依赖各工具的内部实现。"""
     return {"status": "success", key: value}
 
 
 def tool_error(message: str) -> dict[str, str]:
+    """把可恢复问题转换为 Agent 能继续处理的结构化错误。"""
     return {"status": "error", "error_message": message}
 
 
 def get_approved_user_goal(state: dict[str, object]) -> dict[str, object]:
+    # 只暴露经过人工门禁的目标，不允许候选目标被下游工具误用。
     if "approved_user_goal" not in state:
         return tool_error("approved_user_goal 未设置，请继续澄清并让用户批准研究目标。")
     return tool_success("approved_user_goal", state["approved_user_goal"])
 
 
 def get_approved_files(state: dict[str, object]) -> dict[str, object]:
+    # 文件审批与目标审批相互独立，必须单独检查。
     if "approved_files" not in state:
         return tool_error("approved_files 未设置，请先完成文件建议和人工批准。")
     return tool_success("approved_files", state["approved_files"])
@@ -60,6 +64,7 @@ def sample_file(name: str, content: bytes, max_chars: int = 1200) -> FileSample:
     text = content.decode("utf-8-sig", errors="replace")
     columns: list[str] = []
     if suffix == ".csv":
+        # CSV 只读取表头和前三行；这既控制 token，也减少敏感数据暴露。
         reader = csv.reader(StringIO(text))
         rows = []
         for index, row in enumerate(reader):

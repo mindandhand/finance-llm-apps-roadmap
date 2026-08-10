@@ -103,7 +103,11 @@ class RelationshipConstructionRule:
 
 @dataclass
 class ConstructionPlan:
-    """原版 proposed/approved construction plan 的框架无关实现。"""
+    """原版 proposed/approved construction plan 的框架无关实现。
+
+    nodes 与 relationships 是仍可修改的候选方案；只有 approved_by 被设置后，
+    工作流才允许真正写入 Neo4j。该对象因此同时承担编辑会话和审批快照职责。
+    """
 
     nodes: dict[str, NodeConstructionRule] = field(default_factory=dict)
     relationships: dict[str, RelationshipConstructionRule] = field(default_factory=dict)
@@ -111,6 +115,7 @@ class ConstructionPlan:
     approved_by: str | None = None
 
     def propose_node(self, rule: NodeConstructionRule) -> NodeConstructionRule:
+        # 标签是规则身份键：同标签再次提议表示修订 Critic 指出的旧规则。
         self.nodes[rule.label] = rule
         self.approved_by = None
         return rule
@@ -121,6 +126,7 @@ class ConstructionPlan:
         return rule
 
     def remove_node(self, label: str) -> NodeConstructionRule:
+        # 保留原项目细粒度 remove 工具，而不是强迫 Agent 重建整个方案。
         if label not in self.nodes:
             raise ValueError(f"不存在节点施工规则：{label}")
         self.approved_by = None
@@ -134,6 +140,7 @@ class ConstructionPlan:
         return self.relationships.pop(key)
 
     def reject(self, feedback: str) -> None:
+        # 驳回会撤销旧批准；反馈留给下一轮提议提示词使用。
         text = feedback.strip()
         if not text:
             raise ValueError("拒绝施工计划时必须提供反馈。")
@@ -180,6 +187,7 @@ def validate_construction_plan(root: str | Path, plan: ConstructionPlan) -> list
     """使用真实文件验证字段、唯一键和节点引用，等价于原 search_file/Critic 工具。"""
     directory = Path(root)
     findings: list[str] = []
+    # 节点先校验真实列及唯一值；关系规则随后才能安全引用这些节点。
     for rule in plan.nodes.values():
         path = directory / rule.source_file
         if not path.is_file():
@@ -209,6 +217,7 @@ def validate_construction_plan(root: str | Path, plan: ConstructionPlan) -> list
 def validate_construction_payloads(
     payloads: dict[str, bytes], plan: ConstructionPlan
 ) -> list[str]:
+    """校验上传文件中的方案，语义与本地目录版本一致。"""
     """上传文件版本的确定性校验，避免只依赖 Critic 的自然语言判断。"""
     findings: list[str] = []
     node_labels: set[str] = set()
@@ -242,6 +251,7 @@ def validate_construction_payloads(
 
 @dataclass(frozen=True)
 class CsvMappingRule:
+    """旧课程接口：把 CSV 行映射成带证据定位的事实三元组。"""
     """把普通业务 CSV 的两列映射成一条有方向的图关系。"""
 
     file_name: str
@@ -289,6 +299,7 @@ class CsvMappingRule:
 
 @dataclass(frozen=True)
 class StructuredGraphPlan:
+    """兼容旧版一次性结构化方案，避免业务改写导致原调用失效。"""
     rules: list[CsvMappingRule]
     rationale: str
     resolved_findings: list[str] = field(default_factory=list)
@@ -335,6 +346,7 @@ CSV 文件样本：{csv_samples}
 
 
 def build_structured_critic_prompt(goal: str, plan: StructuredGraphPlan) -> str:
+    """生成 Schema Critic 提示词，要求输出可执行的字段级修订意见。"""
     return f"""你是结构化 Schema Critic Agent。
 研究目标：{goal}
 待审核计划：{plan.as_dict()}

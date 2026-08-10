@@ -50,6 +50,7 @@ class UserIntentSession:
         return self.perceived_goal
 
     def approve(self, reviewer: str) -> UserGoal:
+        # 禁止绕过“Agent 先复述目标”直接批准，避免错误意图流入后续构图。
         if self.perceived_goal is None:
             raise ValueError("请先记录 Agent 对研究目标的理解。")
         approved_by = reviewer.strip()
@@ -94,6 +95,7 @@ class IntentConversation:
         self.session.add("user", message)
 
     def ask_clarification(self, question: str) -> None:
+        # 澄清问题也进入消息历史，下一轮模型才能理解用户回答针对什么。
         self.session.add("assistant", question)
         self.phase = "clarifying"
 
@@ -106,6 +108,7 @@ class IntentConversation:
         return self.perceived_goal
 
     def reject_goal(self, feedback: str) -> None:
+        # 驳回候选目标但保留对话历史，Agent 可结合反馈重新理解而非从头开始。
         text = feedback.strip()
         if not text:
             raise ValueError("拒绝目标时必须说明需要修改的内容。")

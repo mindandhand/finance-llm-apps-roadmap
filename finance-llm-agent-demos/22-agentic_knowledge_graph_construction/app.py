@@ -26,6 +26,7 @@ from workflow import build_parity_workflow
 
 
 APP_DIR = Path(__file__).resolve().parent
+# 配置搜索顺序从当前演示向仓库根部扩展，便于独立运行和统一课程配置。
 for env_path in (APP_DIR / ".env", APP_DIR.parent / ".env", APP_DIR.parent.parent / ".env"):
     load_dotenv(env_path)
 
@@ -104,6 +105,7 @@ with st.sidebar:
 build_tab, query_tab, graph_tab, learn_tab = st.tabs(["构建工作流", "GraphRAG 问答", "图谱状态", "技术解读"])
 
 with build_tab:
+    # 候选文件只是 Agent 可检查范围；工作流中的第二个人工门才决定最终使用范围。
     st.subheader("研究意图与数据范围")
     goal = st.text_area(
         "研究目标",
@@ -132,11 +134,13 @@ with build_tab:
                     return {name: catalog_samples[name] for name in names if name in catalog_samples}
 
                 def construct(state):
+                    """消费五道门禁后的状态，一次完成双图构建、分块和实体关联。"""
                     approved_files = state["selected_files"]
                     payloads = {name: catalog[name] for name in approved_files}
                     construction_plan: ConstructionPlan = state["construction_plan"]
                     entity_session = state["entity_session"]
                     fact_session = state["fact_session"]
+                    # CSV 形成确定性的领域图；Markdown 由批准的 NER/Fact Schema 抽取事实图。
                     domain_batch = build_domain_records(payloads, construction_plan)
                     extraction_plan = UnstructuredGraphPlan(
                         entity_session.approved,
@@ -154,6 +158,7 @@ with build_tab:
                     chunks = build_markdown_records(payloads)
                     store = make_store()
                     try:
+                        # 写入顺序保证领域节点、事实证据与文档块都可独立重跑（MERGE 幂等）。
                         written = store.upsert_domain_batch(domain_batch)
                         written += store.upsert_facts(facts)
                         written += store.upsert_chunks(chunks)
@@ -174,6 +179,7 @@ with build_tab:
                     finally:
                         store.close()
 
+                # 回调注入让工作流编排与 Streamlit、具体模型和 Neo4j 连接保持解耦。
                 graph = build_parity_workflow(
                     perceive_goal=service.perceive_goal_conversation,
                     suggest_files=lambda approved_goal, names, feedback: service.suggest_files_conversation(

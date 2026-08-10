@@ -19,6 +19,7 @@ class EntityTypeSession:
     approved_by: str | None = None
 
     def set_proposed(self, entity_types: list[str]) -> list[str]:
+        # 去重但保持模型建议顺序，使 UI 展示及人工对比保持稳定。
         values = list(dict.fromkeys(item.strip() for item in entity_types if item.strip()))
         if not values:
             raise ValueError("至少需要提议一种实体类型。")
@@ -28,6 +29,7 @@ class EntityTypeSession:
         return self.proposed
 
     def reject(self, feedback: str) -> None:
+        # 实体门禁被驳回时不能影响事实门禁之外的会话历史。
         text = feedback.strip()
         if not text:
             raise ValueError("拒绝实体类型时必须提供反馈。")
@@ -63,6 +65,7 @@ class EntityTypeSession:
 
 @dataclass(frozen=True)
 class FactTypeDefinition:
+    """一条允许抽取的事实模式：主语类型—谓词—宾语类型。"""
     subject_label: str
     predicate_label: str
     object_label: str
@@ -96,7 +99,11 @@ class FactTypeDefinition:
 
 @dataclass
 class FactTypeSession:
-    """Fact Agent 状态；只能引用已经批准的实体类型。"""
+    """Fact Agent 状态；只能引用已经批准的实体类型。
+
+    它与 EntityTypeSession 分开审批，确保用户能接受实体集合、但继续修改
+    关系语义，而不必重走前面的 NER 阶段。
+    """
 
     approved_entities: list[str]
     proposed: dict[str, FactTypeDefinition] = field(default_factory=dict)
@@ -105,6 +112,7 @@ class FactTypeSession:
     approved_by: str | None = None
 
     def add_proposed(self, fact: FactTypeDefinition) -> FactTypeDefinition:
+        # 谓词是会话内身份键；重复谓词表示更新定义，不制造重复规则。
         allowed = set(self.approved_entities)
         if fact.subject_label not in allowed or fact.object_label not in allowed:
             raise ValueError("事实类型只能引用已批准的实体类型。")
@@ -114,6 +122,7 @@ class FactTypeSession:
         return fact
 
     def remove_proposed(self, predicate_label: str) -> FactTypeDefinition:
+        # 单条删除能力用于保留原项目的对话式方案编辑行为。
         key = predicate_label.strip().upper()
         if key not in self.proposed:
             raise ValueError(f"不存在事实类型：{key}")
@@ -159,6 +168,7 @@ class FactTypeSession:
 
 @dataclass(frozen=True)
 class UnstructuredGraphPlan:
+    """兼容旧版把实体类型与事实类型合并审批的计划结构。"""
     entity_types: list[str]
     fact_types: list[str]
     chunk_strategy: str

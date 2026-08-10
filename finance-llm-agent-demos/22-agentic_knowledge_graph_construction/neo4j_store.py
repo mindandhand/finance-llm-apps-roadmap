@@ -19,6 +19,7 @@ from kg_construction import (
 
 
 class Neo4jGraphStore:
+    """封装所有 Cypher 写入与检索，Agent 不直接拼接数据库查询。"""
     def __init__(
         self,
         uri: str | None = None,
@@ -44,6 +45,7 @@ class Neo4jGraphStore:
         return hashlib.sha256("\x1f".join(parts).encode("utf-8")).hexdigest()
 
     def upsert_fact(self, fact: ExtractedFact) -> None:
+        """幂等写入 Entity—Fact—Evidence，并尝试连接对应 Markdown 块。"""
         fact_id = self._hash(fact.source, fact.relation.upper(), fact.target)
         evidence_id = self._hash(
             fact_id,
@@ -148,6 +150,7 @@ class Neo4jGraphStore:
             )
 
     def upsert_domain_batch(self, batch: DomainConstructionBatch) -> int:
+        """按约束、节点、关系的依赖顺序写入一批结构化领域记录。"""
         constraints = {(entity.label, entity.unique_key) for entity in batch.entities}
         for label, key in sorted(constraints):
             self.create_uniqueness_constraint(label, key)
@@ -158,6 +161,7 @@ class Neo4jGraphStore:
         return len(batch.entities) + len(batch.relationships)
 
     def upsert_chunks(self, chunks: list[EmbeddedChunk]) -> int:
+        """保存可重复计算的文档分块及向量，供混合 GraphRAG 检索。"""
         for chunk in chunks:
             chunk_id = self._hash(chunk.source_name, str(chunk.index), chunk.text)
             with self.driver.session() as session:
@@ -272,8 +276,10 @@ class Neo4jGraphStore:
         ]
 
     def retrieve(self, question: str, max_hops: int = 2) -> RetrievalResult:
+        """从问题词命中的实体出发，返回事实路径及其原始证据。"""
         terms = re.findall(r"[A-Za-z0-9_]+|[\u4e00-\u9fff]{2,}", question)
         terms = list(dict.fromkeys(term for term in terms if len(term.strip()) >= 2))
+        # Fact 是独立节点，一跳业务关系在存储图上需经过 Entity→Fact→Entity 两段边。
         max_depth = min(6, max(2, int(max_hops) * 2))
         with self.driver.session() as session:
             rows = session.run(

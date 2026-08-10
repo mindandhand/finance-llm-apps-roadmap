@@ -310,7 +310,11 @@ def _approval_decision(decision: object) -> tuple[bool, str]:
 
 
 class ParityState(TypedDict, total=False):
-    """与原对话式 Agent 阶段一一对应的共享状态。"""
+    """与原对话式 Agent 阶段一一对应的可检查点共享状态。
+
+    这里只保存普通 dict/list，而不保存 dataclass 实例，保证 LangGraph 的
+    checkpointer 能稳定序列化；各节点使用时再恢复为领域对象。
+    """
 
     messages: list[dict[str, str]]
     available_files: list[str]
@@ -347,6 +351,7 @@ def build_parity_workflow(
     """恢复原版对话/工具行为，同时用 LangGraph 实现可恢复人工门禁。"""
 
     def perceive_node(state: ParityState) -> dict[str, Any]:
+        # 意图 Agent 可以返回澄清问题，也可以形成 perceived goal；两者不能同时推进。
         result = perceive_goal(state["messages"], state.get("goal_feedback", []))
         if result.get("needs_clarification"):
             question = str(result.get("question", "")).strip()
@@ -362,6 +367,7 @@ def build_parity_workflow(
         return {"perceived_goal": goal, "status": "awaiting_goal_approval"}
 
     def goal_gate(state: ParityState) -> Command[Literal["suggest", "perceive"]]:
+        # 第一门：拒绝后携带反馈回到意图 Agent，而不是直接终止整个会话。
         decision = interrupt({"stage": "goal", "goal": state["perceived_goal"]})
         approved, reviewer = _approval_decision(decision)
         if approved:
@@ -373,6 +379,7 @@ def build_parity_workflow(
         )
 
     def clarification_node(state: ParityState) -> Command[Literal["perceive"]]:
+        # interrupt 暂停图执行；恢复时把问答双方都追加到对话历史。
         answer = interrupt(
             {"stage": "clarification", "question": state["clarification_question"]}
         )
@@ -389,6 +396,7 @@ def build_parity_workflow(
         return Command(update={"messages": messages, "status": "clarifying"}, goto="perceive")
 
     def suggest_node(state: ParityState) -> dict[str, Any]:
+        # 推荐结果必须取自候选目录，模型虚构的路径会在此被过滤。
         result = suggest_files(
             state["perceived_goal"], state["available_files"], state.get("file_feedback", [])
         )
@@ -403,6 +411,7 @@ def build_parity_workflow(
         }
 
     def file_gate(state: ParityState) -> Command[Literal["structured", "suggest"]]:
+        # 第二门：批准的是最终数据范围，不等同于 UI 中允许查看的候选范围。
         decision = interrupt({"stage": "files", "files": state["selected_files"]})
         approved, reviewer = _approval_decision(decision)
         if approved:
@@ -413,6 +422,7 @@ def build_parity_workflow(
         )
 
     def structured_node(state: ParityState) -> dict[str, Any]:
+        # Schema Proposal 与独立 Critic 最多往返三轮，防止模型无限自我修订。
         plan = propose_construction_plan(
             state["perceived_goal"], state["selected_files"], state.get("structured_feedback", [])
         )
@@ -433,6 +443,7 @@ def build_parity_workflow(
         }
 
     def structured_gate(state: ParityState) -> Command[Literal["entities", "structured"]]:
+        # 第三门：只有人工批准后的施工计划才会带 approved_by 进入构建节点。
         plan = ConstructionPlan.from_dict(state["construction_plan"])
         decision = interrupt({"stage": "structured", "plan": plan.as_dict()})
         approved, reviewer = _approval_decision(decision)
@@ -446,6 +457,7 @@ def build_parity_workflow(
         )
 
     def entity_node(state: ParityState) -> dict[str, Any]:
+        # 结构化标签作为 well-known types，NER Agent 优先复用以便后续实体对齐。
         plan = ConstructionPlan.from_dict(state["construction_plan"])
         proposed = propose_entity_types(
             state["perceived_goal"],
@@ -458,6 +470,7 @@ def build_parity_workflow(
         return {"entity_session": session.as_dict(), "status": "awaiting_entity_approval"}
 
     def entity_gate(state: ParityState) -> Command[Literal["facts", "entities"]]:
+        # 第四门只批准实体类型；事实类型仍需下一阶段独立讨论。
         session = EntityTypeSession.from_dict(state["entity_session"])
         decision = interrupt({"stage": "entities", "entity_types": session.proposed})
         approved, reviewer = _approval_decision(decision)
@@ -470,6 +483,7 @@ def build_parity_workflow(
         )
 
     def fact_node(state: ParityState) -> dict[str, Any]:
+        # Fact Agent 只能使用上一门已经批准的实体类型作为主语和宾语。
         entities = EntityTypeSession.from_dict(state["entity_session"])
         proposed = propose_fact_types(
             state["perceived_goal"], entities.approved, state.get("fact_feedback", [])
@@ -480,6 +494,7 @@ def build_parity_workflow(
         return {"fact_session": session.as_dict(), "status": "awaiting_fact_approval"}
 
     def fact_gate(state: ParityState) -> Command[Literal["construct", "facts"]]:
+        # 第五门通过后才具备全部写库前置条件。
         session = FactTypeSession.from_dict(state["fact_session"])
         decision = interrupt({"stage": "facts", "fact_types": [fact.as_dict() for fact in session.proposed.values()]})
         approved, reviewer = _approval_decision(decision)
@@ -490,6 +505,7 @@ def build_parity_workflow(
         return Command(update={"fact_feedback": [*state.get("fact_feedback", []), feedback]}, goto="facts")
 
     def construct_node(state: ParityState) -> dict[str, Any]:
+        # 写库前再次做防御性检查；即使外部错误跳转，也不能绕过任何审批。
         plan = ConstructionPlan.from_dict(state["construction_plan"])
         entities = EntityTypeSession.from_dict(state["entity_session"])
         facts = FactTypeSession.from_dict(state["fact_session"])
@@ -503,6 +519,7 @@ def build_parity_workflow(
         )
         return {"written_facts": construct_graph(callback_state), "status": "completed"}
 
+    # 节点负责业务状态变化，边只描述固定的阶段顺序；驳回回路由 Command 控制。
     builder = StateGraph(ParityState)
     for name, node in (
         ("perceive", perceive_node), ("clarification", clarification_node),
@@ -527,6 +544,7 @@ def build_parity_workflow(
 
 
 def _feedback(decision: object, message: str) -> str:
+    """拒绝动作必须携带反馈，否则 Agent 没有可执行的修订依据。"""
     if not isinstance(decision, dict) or not str(decision.get("feedback", "")).strip():
         raise ValueError(message)
     return str(decision["feedback"]).strip()

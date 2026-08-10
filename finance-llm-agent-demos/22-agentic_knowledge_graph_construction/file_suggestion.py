@@ -9,6 +9,7 @@ from tools import FileSample, SUPPORTED_SUFFIXES, sample_file
 
 
 def build_file_catalog(root: str | Path) -> dict[str, FileSample]:
+    """扫描支持的本地文件，并为 Agent 建立有限内容目录。"""
     """只读取指定目录直属的 CSV/Markdown，形成可审阅目录。"""
     directory = Path(root)
     return {
@@ -36,6 +37,7 @@ def build_file_suggestion_prompt(goal: str, catalog: dict[str, FileSample]) -> s
 
 
 def validate_suggestion(value: dict[str, object], catalog: dict[str, FileSample]) -> dict[str, object]:
+    """拒绝模型虚构的文件名，确保建议严格落在可见目录内。"""
     allowed = set(catalog)
     selected = [str(item) for item in value.get("selected_files", []) if str(item) in allowed]
     return {"selected_files": selected, "reasoning": str(value.get("reasoning", "")).strip()}
@@ -57,6 +59,7 @@ class FileSuggestionSession:
         return sorted(self.payloads)
 
     def sample_file(self, file_name: str) -> FileSample:
+        # 记录采样轨迹，便于审计 Agent 是否在未查看内容时仅凭文件名猜测。
         if Path(file_name).is_absolute() or Path(file_name).name != file_name:
             raise ValueError("文件必须来自候选目录，且只能使用相对文件名。")
         if file_name not in self.payloads:
@@ -76,6 +79,7 @@ class FileSuggestionSession:
         return self.suggested_files
 
     def reject(self, feedback: str) -> None:
+        # 驳回后保留候选目录与采样记录，只清除批准状态并等待重提。
         text = feedback.strip()
         if not text:
             raise ValueError("拒绝文件建议时必须提供反馈。")

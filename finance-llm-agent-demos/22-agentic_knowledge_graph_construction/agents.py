@@ -80,6 +80,7 @@ class DeepSeekClient:
 
 
 class AgentService:
+    """集中管理各专职 Agent 的提示词、JSON 边界与结果校验。"""
     def __init__(self, client: CompletionClient) -> None:
         self.client = client
 
@@ -129,6 +130,7 @@ class AgentService:
         feedback: list[str],
     ) -> dict[str, Any]:
         """让文件 Agent 先决定采样对象，再根据工具结果形成建议。"""
+        # 第一次模型调用只决定“需要看什么”，模拟原 Agent 的按需 sample_file 工具调用。
         discovery = parse_json_response(
             self.client.complete(
                 f"""你是金融知识图谱文件推荐 Agent。
@@ -139,6 +141,7 @@ class AgentService:
         )
         requested = [str(item) for item in discovery.get("sample_files", []) if str(item) in catalog]
         samples = [catalog[name].as_dict() for name in requested]
+        # 第二次调用拿到真实样本后才形成建议，避免仅凭文件名猜测内容。
         result = parse_json_response(
             self.client.complete(
                 f"""你是金融知识图谱文件推荐 Agent。
@@ -158,6 +161,7 @@ class AgentService:
         catalog: dict[str, FileSample],
         feedback: list[str],
     ) -> ConstructionPlan:
+        # 提示词要求输出可执行规则，而非只有节点/关系名称的概念 Schema。
         prompt = f"""你是金融 property graph 结构化 Schema Proposal Agent。
 批准目标：{goal}
 批准文件样本：{[sample.as_dict() for sample in catalog.values() if sample.kind == 'csv']}
@@ -179,6 +183,7 @@ from/to 文件列、from/to 节点唯一键和关系 properties。所有批准 C
     def review_construction_plan(
         self, goal: dict[str, str], plan: ConstructionPlan
     ) -> list[str]:
+        # Critic 与 Proposal Agent 分离，避免生成者在同一次调用中自我放行。
         value = parse_json_response(
             self.client.complete(
                 f"""你是独立的金融 Schema Critic Agent。
@@ -199,6 +204,7 @@ from/to 文件列、from/to 节点唯一键和关系 properties。所有批准 C
         well_known_types: list[str],
         feedback: list[str],
     ) -> list[str]:
+        # 已有领域标签作为复用候选，可降低文本实体与结构化节点后续对齐成本。
         value = parse_json_response(
             self.client.complete(
                 f"""你是金融命名实体 Schema Agent。批准目标：{goal}。
@@ -213,6 +219,7 @@ Markdown 样本：{[item.as_dict() for item in catalog.values() if item.kind == 
     def propose_fact_types_conversation(
         self, goal: dict[str, str], approved_entities: list[str], feedback: list[str]
     ) -> list[FactTypeDefinition]:
+        # 事实类型晚于实体类型生成，以已批准实体集合约束模型输出空间。
         value = parse_json_response(
             self.client.complete(
                 f"""你是金融事实类型 Agent。批准目标：{goal}；已批准实体：{approved_entities}；

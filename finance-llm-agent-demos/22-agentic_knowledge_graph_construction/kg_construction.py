@@ -100,6 +100,7 @@ def build_domain_records(
     if not plan.approved_by:
         raise ValueError("领域图施工前必须批准 construction plan。")
     batch = DomainConstructionBatch()
+    # 先物化所有节点记录，确保关系写入时两端节点已经存在。
     for rule in plan.nodes.values():
         if rule.source_file not in payloads:
             raise ValueError(f"施工计划引用了未批准文件：{rule.source_file}")
@@ -122,6 +123,7 @@ def build_domain_records(
                     row_number,
                 )
             )
+    # 关系文件可与节点文件分离，通过计划中批准的外键/唯一键完成连接。
     for rule in plan.relationships.values():
         if rule.source_file not in payloads:
             raise ValueError(f"施工计划引用了未批准文件：{rule.source_file}")
@@ -166,6 +168,7 @@ def build_markdown_records(
     payloads: dict[str, bytes], embedder: LocalHashEmbedder | None = None
 ) -> list[EmbeddedChunk]:
     """加载 Markdown、保留标题和块序号，并为每个块生成可检索向量。"""
+    # 默认本地哈希向量无需外部模型，演示环境也能稳定复现检索结果。
     encoder = embedder or LocalHashEmbedder()
     records = []
     for name, content in payloads.items():
@@ -191,6 +194,7 @@ def correlate_entity_and_domain_keys(
     domain_keys: list[str],
     similarity: float = 0.9,
 ) -> list[tuple[str, str, float]]:
+    """为抽取实体属性和领域属性生成候选映射，按名称相似度降序返回。"""
     correlated = []
     for entity_key in entity_keys:
         for domain_key in domain_keys:
@@ -203,6 +207,7 @@ def correlate_entity_and_domain_keys(
 
 
 def _facts_from_csv(name: str, content: bytes, rule: CsvMappingRule) -> list[ExtractedFact]:
+    """执行兼容版 CSV 映射，并把原始行号写入 Evidence。"""
     reader = csv.DictReader(StringIO(content.decode("utf-8-sig")))
     columns = set(reader.fieldnames or [])
     missing = {rule.source_column, rule.target_column} - columns
