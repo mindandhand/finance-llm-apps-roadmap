@@ -1,0 +1,6 @@
+# Local model credentials.
+mcp_agent.secrets.yaml
+
+# Runtime output created by Playwright MCP and mcp-agent.
+.playwright-mcp/
+logs/
