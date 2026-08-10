@@ -1,123 +1,150 @@
-# 🌐 Browser MCP Agent
+# 05：用 Playwright MCP 控制浏览器
 
-https://github.com/user-attachments/assets/a01e09fa-131b-479a-8df3-2d1a61fd80f3
+本节让 Agent 通过 Playwright MCP 打开网页、读取页面、点击控件、填写表单和截图。浏览器是真实执行环境，模型只负责规划下一步动作。
 
-A Streamlit application that allows you to browse and interact with websites using natural language commands through the Model Context Protocol (MCP) and [MCP-Agent](https://github.com/lastmile-ai/mcp-agent) with Playwright integration.
+## 学习目标
 
-## Features
+完成本节后，你应该能够：
 
-- **Natural Language Interface**: Control a browser with simple English commands
-- **Full Browser Navigation**: Visit websites and navigate through pages
-- **Interactive Elements**: Click buttons, fill forms, and scroll through content
-- **Visual Feedback**: Take screenshots of webpage elements
-- **Information Extraction**: Extract and summarize content from webpages
-- **Multi-step Tasks**: Complete complex browsing sequences through conversation
+- 解释浏览器状态为什么必须跨多次 Tool Call 保持。
+- 区分页面文本、DOM/可访问性信息和截图。
+- 观察“读取页面 → 选择元素 → 执行动作 → 再次检查”的 Agent 循环。
+- 为浏览器自动化设置只读、安全和权限边界。
 
-## Setup
+## 架构
 
-### Requirements
+```text
+Streamlit 页面
+  -> mcp-agent
+  -> deepseek-v4-pro
+  -> Playwright MCP Server
+  -> 浏览器进程
+  -> 页面状态、文本或截图返回模型
+```
 
-- Python 3.8+
-- Node.js and npm (for Playwright)
-  - This is a critical requirement! The app uses Playwright to control a headless browser
-  - Download and install from [nodejs.org](https://nodejs.org/)
-- OpenAI or Anthropic API Key
+核心配置位于：
 
-### Installation
+```text
+mcp_agent.config.yaml
+mcp_agent.secrets.yaml
+```
 
-1. Clone this repository:
-   ```bash
-   git clone https://github.com/Shubhamsaboo/awesome-llm-apps.git
-   cd mcp_ai_agents/browser_mcp_agent
-   ```
+## 默认模型：DeepSeek-V4-Pro
 
-2. Install the required Python packages:
-   ```bash
-   pip install -r requirements.txt
-   ```
+浏览器任务往往需要多步工具调用。默认使用 `deepseek-v4-pro`，先依赖 DOM、可访问性树和页面文本完成操作。如果任务必须让模型直接理解截图，再切换支持视觉输入的千问模型。
 
-3. Verify Node.js and npm are installed:
-   ```bash
-   node --version
-   npm --version
-   ```
-   Both commands should return version numbers. If they don't, please install Node.js.
+仓库中的 `mcp_agent.config.yaml` 仍使用已经停用的 `deepseek-chat`，运行前应改成：
 
-4. Set up your API keys. Pick **one** of:
+```yaml
+openai:
+  base_url: "https://api.deepseek.com"
+  default_model: "deepseek-v4-pro"
+```
 
-   **a) Via environment variable (simplest for OpenAI):**
-   ```bash
-   export OPENAI_API_KEY=your-openai-api-key
-   ```
+然后创建密钥文件：
 
-   **b) Via `mcp_agent.secrets.yaml` (required for Ollama / any custom base URL):**
-   ```bash
-   cp mcp_agent.secrets.yaml.example mcp_agent.secrets.yaml
-   # edit mcp_agent.secrets.yaml and put your key under openai.api_key
-   ```
+```bash
+cp mcp_agent.secrets.yaml.example mcp_agent.secrets.yaml
+```
 
-### Running with a local Ollama model
+编辑 `mcp_agent.secrets.yaml`：
 
-Because `mcp-agent` talks to an OpenAI-compatible endpoint and Ollama exposes one at `http://localhost:11434/v1`, this agent runs against a local model with just config changes — no code edits or extra dependencies. See discussion in [#329](https://github.com/Shubhamsaboo/awesome-llm-apps/issues/329).
+```yaml
+openai:
+  api_key: "your-deepseek-key"
+```
 
-1. Install and start Ollama, then pull a tool-capable model:
-   ```bash
-   ollama pull llama3.2
-   ollama serve
-   ```
+该密钥文件已用于本地配置，不应提交到 Git。
 
-2. Edit `mcp_agent.config.yaml` and replace the `openai:` block with:
-   ```yaml
-   openai:
-     base_url: "http://localhost:11434/v1"
-     default_model: "llama3.2"
-   ```
+## 安装与运行
 
-3. In `mcp_agent.secrets.yaml`, set any non-empty `api_key` (Ollama ignores it):
-   ```yaml
-   openai:
-     api_key: "ollama"
-   ```
+```bash
+cd mcp-demos/05-browser-mcp-agent
+pip install -r requirements.txt
 
-4. Run as normal — `streamlit run main.py`. No `OPENAI_API_KEY` env var is required in this path.
+node --version
+npx --version
 
-> Note: browser automation benefits from a reasoning-capable model. Smaller local models may struggle with multi-step Playwright tasks.
+streamlit run main.py
+```
 
-### Running the App
+Playwright MCP Server 由 `mcp-agent` 根据 `mcp_agent.config.yaml` 启动。
 
-1. Start the Streamlit app:
-   ```bash
-   streamlit run main.py
-   ```
+## 建议的验证顺序
 
-2. In the app interface:
-   - Enter your browsing command
-   - Click "Run Command"
-   - View the results and screenshots
+先从公开页面和只读动作开始：
 
-### Example Commands
+```text
+1. 打开 https://example.com。
+2. 返回页面标题和主要文本。
+3. 截取页面截图。
+4. 打开一个公开文档页，列出所有一级标题。
+```
 
-#### Basic Navigation
-- "Go to www.mcp-agent.com"
-- "Go back to the previous page"
+确认读取稳定后，再测试点击和表单。不要一开始就登录真实账户。
 
-#### Interaction
-- "Click on the login button"
-- "Scroll down to see more content"
+## 浏览器 Agent 的循环
 
-#### Content Extraction
-- "Summarize the main content of this page"
-- "Extract the navigation menu items"
-- "Take a screenshot of the hero section"
+一次完整操作通常不是一个 Tool Call：
 
-#### Multi-step Tasks
-- "Go to the blog, find the most recent article, and summarize its key points"
+```text
+读取当前页面
+  -> 找到目标元素
+  -> 点击或输入
+  -> 等待页面变化
+  -> 再读取页面
+  -> 判断任务是否完成
+```
 
-## Architecture
+如果模型在点击后不再检查页面，它可能把“发出了动作”误当成“动作已成功”。
 
-The application uses:
-- Streamlit for the user interface
-- MCP (Model Context Protocol) to connect the LLM with tools
-- Playwright for browser automation
-- [MCP-Agent](https://github.com/lastmile-ai/mcp-agent/) for the Agentic Framework
-- OpenAI's models to interpret commands and generate responses
+## 本地模型选项
+
+本地模型必须支持 OpenAI-compatible API 和工具调用。配置示例：
+
+```yaml
+openai:
+  base_url: "http://localhost:11434/v1"
+  default_model: "your-tool-capable-model"
+```
+
+```yaml
+openai:
+  api_key: "local"
+```
+
+浏览器任务对模型要求高。小模型常见问题包括选错元素、参数格式错误、动作后停止，以及无法根据页面变化修正计划。
+
+## 安全边界
+
+- 默认只访问公开页面。
+- 不在测试中输入真实密码、支付信息或高权限 token。
+- 点击“提交、发布、删除、购买”前增加人工确认。
+- 限制可访问域名，避免模型跟随页面内容跳转到未知站点。
+- 网页文本是不可信输入，不能把页面中的提示当成系统指令。
+
+## 常见问题
+
+- 浏览器未启动：检查 Node.js、`npx` 和 Playwright MCP 日志。
+- 模型不调用工具：检查模型是否支持 Function Calling，以及 base URL 是否生效。
+- 点击失败：先让 Agent 重新读取页面，确认元素名称和页面状态。
+- 页面一直加载：增加等待或缩小任务，不要连续重复点击。
+- 截图不能被理解：确认当前框架确实把图像内容传给多模态模型，而不是只返回文件路径。
+
+## 金融场景练习
+
+只读访问交易所或上市公司公开页面：
+
+1. 打开公告列表。
+2. 找到最新公告标题和日期。
+3. 进入公告详情。
+4. 提取原始链接并生成摘要。
+
+不要用浏览器 Agent 绕过登录、验证码、反爬机制或网站授权边界。
+
+## 参考资料
+
+- [Playwright MCP](https://github.com/microsoft/playwright-mcp)
+- [mcp-agent](https://github.com/lastmile-ai/mcp-agent)
+- [DeepSeek Tool Calls](https://api-docs.deepseek.com/guides/tool_calls/)
+- [千问视觉理解（必须处理截图时）](https://help.aliyun.com/zh/model-studio/vision-model/)
