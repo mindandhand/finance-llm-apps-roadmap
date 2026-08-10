@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from dataclasses import dataclass, field
 
 from tools import FileSample, SUPPORTED_SUFFIXES, sample_file
 
@@ -38,3 +39,56 @@ def validate_suggestion(value: dict[str, object], catalog: dict[str, FileSample]
     allowed = set(catalog)
     selected = [str(item) for item in value.get("selected_files", []) if str(item) in allowed]
     return {"selected_files": selected, "reasoning": str(value.get("reasoning", "")).strip()}
+
+
+@dataclass
+class FileSuggestionSession:
+    """文件 Agent 的工具状态，支持按需采样以及拒绝后的重新推荐。"""
+
+    payloads: dict[str, bytes]
+    suggested_files: list[str] = field(default_factory=list)
+    approved_files: list[str] = field(default_factory=list)
+    feedback: list[str] = field(default_factory=list)
+    sampled_files: list[str] = field(default_factory=list)
+    approved_by: str | None = None
+    phase: str = "discovering"
+
+    def list_available_files(self) -> list[str]:
+        return sorted(self.payloads)
+
+    def sample_file(self, file_name: str) -> FileSample:
+        if Path(file_name).is_absolute() or Path(file_name).name != file_name:
+            raise ValueError("文件必须来自候选目录，且只能使用相对文件名。")
+        if file_name not in self.payloads:
+            raise ValueError(f"候选目录中不存在文件：{file_name}")
+        if file_name not in self.sampled_files:
+            self.sampled_files.append(file_name)
+        return sample_file(file_name, self.payloads[file_name])
+
+    def set_suggested_files(self, files: list[str]) -> list[str]:
+        unknown = set(files) - set(self.payloads)
+        if unknown:
+            raise ValueError(f"推荐包含目录外文件：{', '.join(sorted(unknown))}")
+        self.suggested_files = list(dict.fromkeys(files))
+        self.approved_files = []
+        self.approved_by = None
+        self.phase = "awaiting_file_approval"
+        return self.suggested_files
+
+    def reject(self, feedback: str) -> None:
+        text = feedback.strip()
+        if not text:
+            raise ValueError("拒绝文件建议时必须提供反馈。")
+        self.feedback.append(text)
+        self.phase = "discovering"
+
+    def approve(self, reviewer: str) -> list[str]:
+        if not self.suggested_files:
+            raise ValueError("请先设置建议文件。")
+        name = reviewer.strip()
+        if not name:
+            raise ValueError("文件审批人不能为空。")
+        self.approved_files = list(self.suggested_files)
+        self.approved_by = name
+        self.phase = "approved"
+        return self.approved_files

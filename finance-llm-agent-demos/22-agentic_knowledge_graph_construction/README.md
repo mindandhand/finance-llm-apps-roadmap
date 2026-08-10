@@ -10,8 +10,8 @@
 
 1. 如何通过意图 Agent 澄清研究目标，并在人工确认后进入数据选择。
 2. 为什么 Schema 提议 Agent 与批判 Agent 应当分工。
-3. 如何用 LangGraph `interrupt()` 和 `Command(resume=...)` 建立真正的人工审批门禁。
-4. 如何分别处理 CSV 结构化关系和 Markdown 非结构化事实，再执行实体链接。
+3. 如何用 LangGraph `interrupt()` 和 `Command(resume=...)` 保留多轮澄清、反馈重试和独立审批门禁。
+4. 如何分别批准结构化施工计划、实体类型和事实类型，再执行双通道构图与实体链接。
 5. 如何在 Neo4j 中为每条事实保留来源、位置、原文片段与置信度。
 6. 如何执行多跳 GraphRAG，并让答案中的 `[n]` 引用回到原始证据。
 
@@ -19,15 +19,15 @@
 
 | 原案例能力 | 本示例实现 |
 | --- | --- |
-| 用户意图分析 | Agent 形成 perceived goal，研究员明确批准后保存 approved goal |
-| 文件推荐 Agent | DeepSeek 读取文件名、CSV 表头、样例行和 Markdown 摘要，研究员确认范围 |
-| 结构化 Schema 提议 | 为普通业务 CSV 生成可执行字段映射和有方向的关系规则 |
-| 非结构化抽取方案 | 独立提出实体类型、事实类型和 Markdown 分块策略 |
-| Proposal + Critic | Critic 意见必须进入修订版计划，而不是只显示意见 |
-| Human-in-the-loop | 意图、文件、结构化计划、非结构化计划分别使用 LangGraph 动态中断 |
-| CSV 图谱构建 | 严格执行批准后的字段映射规则，保留行号，不要求预制三元组 |
-| Markdown 事实抽取 | DeepSeek 抽取实体关系、段落、原文与置信度 |
-| 实体链接 | 将结构化实体标准名注入抽取 Prompt，要求非结构化事实优先复用 |
+| 用户意图分析 | 多轮澄清、perceived goal、拒绝反馈、重新理解和独立批准 |
+| 文件推荐 Agent | Agent 先决定按需采样文件，用户拒绝后结合反馈重新推荐 |
+| 结构化 Schema 提议 | 节点、唯一键、节点属性、关系方向、外键和关系属性施工规则 |
+| 非结构化抽取方案 | NER Agent 与 Fact Agent 分离，实体类型和事实类型分别批准 |
+| Proposal + Critic | Critic 意见进入修订版，重新审核，最多三轮不收敛则阻止审批 |
+| Human-in-the-loop | 目标、文件、施工计划、实体类型、事实类型五个独立动态门禁 |
+| CSV 图谱构建 | 先创建唯一约束和领域节点，再按外键创建带属性关系 |
+| Markdown 事实抽取 | 保留标题、按分隔符分块、生成 embedding，并按批准 Schema 抽取 |
+| 实体链接 | 比较抽取实体键和领域键，建立 `CORRESPONDS_TO` 图融合关系 |
 | Neo4j 图谱 | `Entity → Fact → Entity`，`Evidence → Fact` |
 | GraphRAG | 路由 Agent 选择直接或多跳检索，再生成证据上下文和带引用回答 |
 
@@ -36,13 +36,14 @@ Google ADK 被替换为 LangGraph，默认模型改为 DeepSeek；这是技术�
 ## 架构
 
 ```text
-研究描述 → 意图 Agent → 人工确认研究目标
-  → 文件内容采样 → 文件推荐 Agent → 人工确认文件
-  → 结构化 Proposal ↔ Critic → 人工批准可执行映射
-  → 非结构化实体/事实计划 → 人工批准抽取方案
-  → CSV 确定性转换 ─┐
-                     ├→ 实体链接 → Neo4j Entity / Fact / Evidence
-  → Markdown 抽取 ───┘
+研究描述 ↔ 意图 Agent 澄清/修订 → 批准研究目标
+  → 文件 Agent 按需采样 ↔ 用户反馈 → 批准文件
+  → 结构化 Proposal ↔ Critic ↔ 用户反馈 → 批准施工计划
+  → NER Agent ↔ 用户反馈 → 批准实体类型
+  → Fact Agent ↔ 用户反馈 → 批准事实类型
+  → CSV 领域节点/关系 ───────────┐
+  → Markdown Chunk/Embedding/事实 ├→ CORRESPONDS_TO → 融合图谱
+                                  └→ Evidence 溯源
   → 图路径检索 → DeepSeek 基于证据回答 → [n] 引用账本
 ```
 
@@ -55,6 +56,7 @@ Google ADK 被替换为 LangGraph，默认模型改为 DeepSeek；这是技术�
 ├── app.py               # Streamlit 研究工作台
 ├── agents.py            # DeepSeek 文件推荐、Schema、批判、抽取和回答 Agent
 ├── core.py              # 数据契约、审批门禁、CSV 解析和内存图检索
+├── helper.py            # 消息历史和 Agent 共享会话状态
 ├── user_intent.py       # 研究意图感知、澄清与批准状态
 ├── file_suggestion.py   # 文件内容采样、推荐 Prompt 和结果校验
 ├── structured_schema_proposal.py   # CSV 可执行映射与 Critic 修订
@@ -100,10 +102,11 @@ pip install -r requirements.txt
 
 1. 输入初步研究描述，由意图 Agent 形成规范目标并人工批准。
 2. 文件推荐 Agent 分析内容样本，研究员确认最终文件范围。
-3. 结构化 Proposal Agent 生成字段映射，Critic 提出意见并触发修订，再人工批准。
-4. 非结构化 Agent 独立生成实体和事实抽取计划，再人工批准。
-5. 系统严格按两份批准计划构图；任一必要计划未批准都会阻止写库。
-6. 在 GraphRAG 页提问，检查检索策略、推理路径与证据账本是否一致。
+3. 结构化 Proposal Agent 生成节点/关系施工规则，Critic 提出意见并触发修订，再人工批准。
+4. NER Agent 提议实体类型；可拒绝并反馈，满意后单独批准。
+5. Fact Agent 只使用已批准实体定义主语、谓语和宾语；再次独立批准。
+6. 系统构建领域图、文档 Chunk 和抽取图，再通过 `CORRESPONDS_TO` 融合。
+7. 在 GraphRAG 页提问，检查检索策略、图路径、Chunk 和证据账本是否一致。
 
 自定义 CSV 不需要预先整理成三元组。Schema Agent 会根据真实表头生成映射；构图前仍应检查字段选择和关系方向是否正确。
 

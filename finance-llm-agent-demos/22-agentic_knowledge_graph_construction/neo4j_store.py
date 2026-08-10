@@ -9,6 +9,13 @@ from typing import Any
 from neo4j import GraphDatabase
 
 from core import Evidence, ExtractedFact, RetrievalResult
+from kg_construction import (
+    DomainConstructionBatch,
+    DomainEntity,
+    DomainRelationship,
+    EmbeddedChunk,
+    LocalHashEmbedder,
+)
 
 
 class Neo4jGraphStore:
@@ -79,6 +86,138 @@ class Neo4jGraphStore:
         for fact in facts:
             self.upsert_fact(fact)
         return len(facts)
+
+    @staticmethod
+    def _identifier(value: str) -> str:
+        """标签和属性键不能作为普通参数，写入 Cypher 前仅允许安全标识符。"""
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value):
+            raise ValueError(f"不安全的 Neo4j 标识符：{value}")
+        return value
+
+    def create_uniqueness_constraint(self, label: str, unique_key: str) -> None:
+        safe_label = self._identifier(label)
+        safe_key = self._identifier(unique_key)
+        constraint = self._identifier(f"{safe_label}_{safe_key}_constraint")
+        with self.driver.session() as session:
+            session.run(
+                f"CREATE CONSTRAINT `{constraint}` IF NOT EXISTS "
+                f"FOR (n:`{safe_label}`) REQUIRE n.`{safe_key}` IS UNIQUE"
+            )
+
+    def upsert_domain_entity(self, entity: DomainEntity) -> None:
+        label = self._identifier(entity.label)
+        key = self._identifier(entity.unique_key)
+        with self.driver.session() as session:
+            session.run(
+                f"MERGE (n:`{label}` {{`{key}`: $unique_value}}) "
+                "SET n += $properties, n._source_name = $source_name, n._source_row = $source_row",
+                unique_value=entity.unique_value,
+                properties=entity.properties,
+                source_name=entity.source_name,
+                source_row=entity.row_number,
+            )
+
+    def upsert_domain_relationship(self, relationship: DomainRelationship) -> None:
+        source_label = self._identifier(relationship.source_label)
+        source_property = self._identifier(relationship.source_property)
+        target_label = self._identifier(relationship.target_label)
+        target_property = self._identifier(relationship.target_property)
+        relation = self._identifier(relationship.relationship_type)
+        with self.driver.session() as session:
+            session.run(
+                f"MATCH (source:`{source_label}` {{`{source_property}`: $source_key}}), "
+                f"(target:`{target_label}` {{`{target_property}`: $target_key}}) "
+                f"MERGE (source)-[r:`{relation}`]->(target) "
+                "SET r += $properties, r._source_name = $source_name, r._source_row = $source_row",
+                source_key=relationship.source_key,
+                target_key=relationship.target_key,
+                properties=relationship.properties,
+                source_name=relationship.source_name,
+                source_row=relationship.row_number,
+            )
+
+    def upsert_domain_batch(self, batch: DomainConstructionBatch) -> int:
+        constraints = {(entity.label, entity.unique_key) for entity in batch.entities}
+        for label, key in sorted(constraints):
+            self.create_uniqueness_constraint(label, key)
+        for entity in batch.entities:
+            self.upsert_domain_entity(entity)
+        for relationship in batch.relationships:
+            self.upsert_domain_relationship(relationship)
+        return len(batch.entities) + len(batch.relationships)
+
+    def upsert_chunks(self, chunks: list[EmbeddedChunk]) -> int:
+        for chunk in chunks:
+            chunk_id = self._hash(chunk.source_name, str(chunk.index), chunk.text)
+            with self.driver.session() as session:
+                session.run(
+                    """
+                    MERGE (chunk:DocumentChunk {id: $chunk_id})
+                    SET chunk.source_name = $source_name, chunk.chunk_index = $chunk_index,
+                        chunk.title = $title, chunk.text = $text, chunk.embedding = $embedding
+                    """,
+                    chunk_id=chunk_id,
+                    source_name=chunk.source_name,
+                    chunk_index=chunk.index,
+                    title=chunk.title,
+                    text=chunk.text,
+                    embedding=chunk.embedding,
+                )
+        return len(chunks)
+
+    def correlate_extracted_entities(
+        self, label: str, entity_key: str, domain_key: str
+    ) -> int:
+        """连接抽取 Entity 与领域节点；标准化后的精确值匹配可重复执行。"""
+        safe_label = self._identifier(label)
+        safe_entity_key = self._identifier(entity_key)
+        safe_domain_key = self._identifier(domain_key)
+        with self.driver.session() as session:
+            row = session.run(
+                f"""
+                MATCH (entity:Entity), (domain:`{safe_label}`)
+                WHERE entity.type = $label
+                  AND toLower(trim(toString(entity.`{safe_entity_key}`))) =
+                      toLower(trim(toString(domain.`{safe_domain_key}`)))
+                MERGE (entity)-[r:CORRESPONDS_TO]->(domain)
+                RETURN count(r) AS relationship_count
+                """,
+                label=label,
+            ).single()
+        return int(row["relationship_count"]) if row else 0
+
+    def retrieve_chunks(self, question: str, top_k: int = 5) -> list[Evidence]:
+        """对已保存的 Chunk embedding 做余弦检索，补充图路径之外的原文证据。"""
+        query_vector = LocalHashEmbedder().embed(question)
+        with self.driver.session() as session:
+            rows = [
+                dict(row)
+                for row in session.run(
+                    """
+                    MATCH (chunk:DocumentChunk)
+                    RETURN chunk.source_name AS source_name, chunk.chunk_index AS chunk_index,
+                           chunk.text AS text, chunk.embedding AS embedding
+                    """
+                )
+            ]
+        scored = []
+        for row in rows:
+            embedding = [float(value) for value in row.get("embedding") or []]
+            if len(embedding) != len(query_vector):
+                continue
+            score = sum(left * right for left, right in zip(query_vector, embedding))
+            scored.append((score, row))
+        scored.sort(key=lambda item: item[0], reverse=True)
+        return [
+            Evidence(
+                str(row["source_name"]),
+                f"块 {int(row['chunk_index']) + 1}",
+                str(row["text"]),
+                max(0.0, min(1.0, score)),
+            )
+            for score, row in scored[:top_k]
+            if score > 0
+        ]
 
     def retrieve(self, question: str, max_hops: int = 2) -> RetrievalResult:
         terms = re.findall(r"[A-Za-z0-9_]+|[\u4e00-\u9fff]{2,}", question)

@@ -2,6 +2,12 @@ import unittest
 
 from core import Evidence, ExtractedFact
 from neo4j_store import Neo4jGraphStore
+from kg_construction import (
+    DomainConstructionBatch,
+    DomainEntity,
+    DomainRelationship,
+    EmbeddedChunk,
+)
 
 
 class FakeResult:
@@ -86,6 +92,42 @@ class Neo4jGraphStoreTests(unittest.TestCase):
         self.assertEqual("风险公告.md", result.citations[0].source_name)
         self.assertIn("[1]", result.context)
         self.assertEqual(4, session.calls[0][1]["max_depth"])
+
+    def test_domain_batch_creates_constraint_nodes_and_relationship_properties(self):
+        session = FakeSession([FakeResult(), FakeResult(), FakeResult()])
+        store = Neo4jGraphStore(driver=FakeDriver(session))
+        batch = DomainConstructionBatch(
+            entities=[DomainEntity("Company", "company_code", "600001", {"company_name": "远航汽车"}, "companies.csv", 2)],
+            relationships=[
+                DomainRelationship(
+                    "SUPPLIES", "Company", "600002", "company_code", "Company", "600001",
+                    "company_code", {"ratio": "0.38"}, "relationships.csv", 2
+                )
+            ],
+        )
+
+        written = store.upsert_domain_batch(batch)
+
+        self.assertEqual(2, written)
+        self.assertIn("CREATE CONSTRAINT", session.calls[0][0])
+        self.assertEqual({"company_name": "远航汽车"}, session.calls[1][1]["properties"])
+        self.assertEqual({"ratio": "0.38"}, session.calls[2][1]["properties"])
+
+    def test_chunks_are_persisted_with_embeddings(self):
+        session = FakeSession([FakeResult()])
+        store = Neo4jGraphStore(driver=FakeDriver(session))
+
+        count = store.upsert_chunks([EmbeddedChunk("risk.md", 0, "风险公告", "芯片短缺", [0.1, 0.2])])
+
+        self.assertEqual(1, count)
+        self.assertIn("DocumentChunk", session.calls[0][0])
+        self.assertEqual([0.1, 0.2], session.calls[0][1]["embedding"])
+
+    def test_unsafe_dynamic_identifier_is_rejected(self):
+        store = Neo4jGraphStore(driver=FakeDriver(FakeSession([])))
+
+        with self.assertRaises(ValueError):
+            store.create_uniqueness_constraint("Company`) MATCH (n)", "company_code")
 
 
 if __name__ == "__main__":

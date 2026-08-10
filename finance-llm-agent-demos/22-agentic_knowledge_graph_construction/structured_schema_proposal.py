@@ -2,10 +2,242 @@
 
 from __future__ import annotations
 
+import csv
+from io import StringIO
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from tools import FileSample
+
+
+@dataclass(frozen=True)
+class NodeConstructionRule:
+    """从业务 CSV 创建领域节点，保留唯一键和批准属性。"""
+
+    source_file: str
+    label: str
+    unique_column_name: str
+    properties: list[str]
+
+    def __post_init__(self) -> None:
+        if not self.source_file.strip() or not self.label.strip() or not self.unique_column_name.strip():
+            raise ValueError("节点施工规则的文件、标签和唯一列不能为空。")
+        if self.unique_column_name in self.properties:
+            raise ValueError("唯一列无需在普通属性中重复声明。")
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "construction_type": "node",
+            "source_file": self.source_file,
+            "label": self.label,
+            "unique_column_name": self.unique_column_name,
+            "properties": self.properties,
+        }
+
+    @classmethod
+    def from_dict(cls, value: dict[str, Any]) -> "NodeConstructionRule":
+        return cls(
+            str(value.get("source_file", "")),
+            str(value.get("label", "")),
+            str(value.get("unique_column_name", "")),
+            [str(item) for item in value.get("properties", [])],
+        )
+
+
+@dataclass(frozen=True)
+class RelationshipConstructionRule:
+    """从业务 CSV 的外键列连接既有领域节点，并导入关系属性。"""
+
+    source_file: str
+    relationship_type: str
+    from_node_label: str
+    from_node_column: str
+    to_node_label: str
+    to_node_column: str
+    properties: list[str]
+    from_node_key: str | None = None
+    to_node_key: str | None = None
+
+    def __post_init__(self) -> None:
+        required = (
+            self.source_file,
+            self.relationship_type,
+            self.from_node_label,
+            self.from_node_column,
+            self.to_node_label,
+            self.to_node_column,
+        )
+        if not all(str(value).strip() for value in required):
+            raise ValueError("关系施工规则的文件、类型、节点和连接列不能为空。")
+        object.__setattr__(self, "relationship_type", self.relationship_type.strip().upper())
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "construction_type": "relationship",
+            "source_file": self.source_file,
+            "relationship_type": self.relationship_type,
+            "from_node_label": self.from_node_label,
+            "from_node_column": self.from_node_column,
+            "to_node_label": self.to_node_label,
+            "to_node_column": self.to_node_column,
+            "properties": self.properties,
+            "from_node_key": self.from_node_key,
+            "to_node_key": self.to_node_key,
+        }
+
+    @classmethod
+    def from_dict(cls, value: dict[str, Any]) -> "RelationshipConstructionRule":
+        return cls(
+            str(value.get("source_file", "")),
+            str(value.get("relationship_type", "")),
+            str(value.get("from_node_label", "")),
+            str(value.get("from_node_column", "")),
+            str(value.get("to_node_label", "")),
+            str(value.get("to_node_column", "")),
+            [str(item) for item in value.get("properties", [])],
+            str(value.get("from_node_key", "")).strip() or None,
+            str(value.get("to_node_key", "")).strip() or None,
+        )
+
+
+@dataclass
+class ConstructionPlan:
+    """原版 proposed/approved construction plan 的框架无关实现。"""
+
+    nodes: dict[str, NodeConstructionRule] = field(default_factory=dict)
+    relationships: dict[str, RelationshipConstructionRule] = field(default_factory=dict)
+    feedback: list[str] = field(default_factory=list)
+    approved_by: str | None = None
+
+    def propose_node(self, rule: NodeConstructionRule) -> NodeConstructionRule:
+        self.nodes[rule.label] = rule
+        self.approved_by = None
+        return rule
+
+    def propose_relationship(self, rule: RelationshipConstructionRule) -> RelationshipConstructionRule:
+        self.relationships[rule.relationship_type] = rule
+        self.approved_by = None
+        return rule
+
+    def remove_node(self, label: str) -> NodeConstructionRule:
+        if label not in self.nodes:
+            raise ValueError(f"不存在节点施工规则：{label}")
+        self.approved_by = None
+        return self.nodes.pop(label)
+
+    def remove_relationship(self, relationship_type: str) -> RelationshipConstructionRule:
+        key = relationship_type.strip().upper()
+        if key not in self.relationships:
+            raise ValueError(f"不存在关系施工规则：{key}")
+        self.approved_by = None
+        return self.relationships.pop(key)
+
+    def reject(self, feedback: str) -> None:
+        text = feedback.strip()
+        if not text:
+            raise ValueError("拒绝施工计划时必须提供反馈。")
+        self.feedback.append(text)
+        self.approved_by = None
+
+    def approve(self, reviewer: str) -> "ConstructionPlan":
+        name = reviewer.strip()
+        if not name:
+            raise ValueError("施工计划审批人不能为空。")
+        if not self.nodes:
+            raise ValueError("施工计划必须至少包含一类领域节点。")
+        self.approved_by = name
+        return self
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "nodes": {key: rule.as_dict() for key, rule in self.nodes.items()},
+            "relationships": {key: rule.as_dict() for key, rule in self.relationships.items()},
+            "feedback": self.feedback,
+            "approved_by": self.approved_by,
+        }
+
+    @classmethod
+    def from_dict(cls, value: dict[str, Any]) -> "ConstructionPlan":
+        return cls(
+            nodes={key: NodeConstructionRule.from_dict(item) for key, item in value.get("nodes", {}).items()},
+            relationships={
+                key: RelationshipConstructionRule.from_dict(item)
+                for key, item in value.get("relationships", {}).items()
+            },
+            feedback=[str(item) for item in value.get("feedback", [])],
+            approved_by=str(value.get("approved_by", "")).strip() or None,
+        )
+
+
+def _csv_columns_and_rows(path: Path) -> tuple[list[str], list[dict[str, str]]]:
+    with path.open(encoding="utf-8-sig", newline="") as file:
+        reader = csv.DictReader(file)
+        return list(reader.fieldnames or []), list(reader)
+
+
+def validate_construction_plan(root: str | Path, plan: ConstructionPlan) -> list[str]:
+    """使用真实文件验证字段、唯一键和节点引用，等价于原 search_file/Critic 工具。"""
+    directory = Path(root)
+    findings: list[str] = []
+    for rule in plan.nodes.values():
+        path = directory / rule.source_file
+        if not path.is_file():
+            findings.append(f"节点文件不存在：{rule.source_file}")
+            continue
+        columns, rows = _csv_columns_and_rows(path)
+        missing = {rule.unique_column_name, *rule.properties} - set(columns)
+        if missing:
+            findings.append(f"{rule.source_file} 缺少字段：{', '.join(sorted(missing))}")
+        values = [(row.get(rule.unique_column_name) or "").strip() for row in rows]
+        if not values or any(not value for value in values) or len(values) != len(set(values)):
+            findings.append(f"{rule.source_file}.{rule.unique_column_name} 不是非空唯一键")
+    for rule in plan.relationships.values():
+        path = directory / rule.source_file
+        if not path.is_file():
+            findings.append(f"关系文件不存在：{rule.source_file}")
+            continue
+        columns, _ = _csv_columns_and_rows(path)
+        missing = {rule.from_node_column, rule.to_node_column, *rule.properties} - set(columns)
+        if missing:
+            findings.append(f"{rule.source_file} 缺少字段：{', '.join(sorted(missing))}")
+        if rule.from_node_label not in plan.nodes or rule.to_node_label not in plan.nodes:
+            findings.append(f"{rule.relationship_type} 引用了未定义的节点标签")
+    return findings
+
+
+def validate_construction_payloads(
+    payloads: dict[str, bytes], plan: ConstructionPlan
+) -> list[str]:
+    """上传文件版本的确定性校验，避免只依赖 Critic 的自然语言判断。"""
+    findings: list[str] = []
+    node_labels: set[str] = set()
+    for rule in plan.nodes.values():
+        if rule.source_file not in payloads:
+            findings.append(f"节点文件未获批准：{rule.source_file}")
+            continue
+        reader = csv.DictReader(StringIO(payloads[rule.source_file].decode("utf-8-sig")))
+        columns = set(reader.fieldnames or [])
+        rows = list(reader)
+        node_labels.add(rule.label)
+        missing = {rule.unique_column_name, *rule.properties} - columns
+        if missing:
+            findings.append(f"{rule.source_file} 缺少字段：{', '.join(sorted(missing))}")
+        values = [(row.get(rule.unique_column_name) or "").strip() for row in rows]
+        if not values or any(not value for value in values) or len(values) != len(set(values)):
+            findings.append(f"{rule.source_file}.{rule.unique_column_name} 不是非空唯一键")
+    for rule in plan.relationships.values():
+        if rule.source_file not in payloads:
+            findings.append(f"关系文件未获批准：{rule.source_file}")
+            continue
+        reader = csv.DictReader(StringIO(payloads[rule.source_file].decode("utf-8-sig")))
+        columns = set(reader.fieldnames or [])
+        missing = {rule.from_node_column, rule.to_node_column, *rule.properties} - columns
+        if missing:
+            findings.append(f"{rule.source_file} 缺少字段：{', '.join(sorted(missing))}")
+        if rule.from_node_label not in node_labels or rule.to_node_label not in node_labels:
+            findings.append(f"{rule.relationship_type} 引用了未定义的节点标签")
+    return findings
 
 
 @dataclass(frozen=True)

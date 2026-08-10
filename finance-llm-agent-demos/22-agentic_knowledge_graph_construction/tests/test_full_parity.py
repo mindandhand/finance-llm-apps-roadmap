@@ -6,6 +6,7 @@ from file_suggestion import FileSuggestionSession
 from helper import ConversationSession
 from kg_construction import (
     build_domain_records,
+    build_markdown_records,
     correlate_entity_and_domain_keys,
     normalize_key,
     split_markdown,
@@ -15,6 +16,7 @@ from structured_schema_proposal import (
     NodeConstructionRule,
     RelationshipConstructionRule,
     validate_construction_plan,
+    validate_construction_payloads,
 )
 from unstructured_schema_proposal import (
     EntityTypeSession,
@@ -159,6 +161,29 @@ class FullParityTests(unittest.TestCase):
         self.assertEqual("name", normalize_key("Company", "company name"))
         self.assertEqual(("name", "company_name"), correlated[0][:2])
 
+    def test_markdown_embeddings_and_plan_checkpoint_round_trips(self):
+        records = build_markdown_records(
+            {"risk.md": "# 风险公告\n\n芯片短缺。\n\n---\n\n交付延期。".encode()}
+        )
+        plan = ConstructionPlan(
+            nodes={
+                "Company": NodeConstructionRule(
+                    "companies.csv", "Company", "company_code", ["company_name"]
+                )
+            },
+            approved_by="研究员",
+        )
+        restored = ConstructionPlan.from_dict(plan.as_dict())
+        findings = validate_construction_payloads(
+            {"companies.csv": b"company_code,company_name\n600001,FarSail Auto\n"}, restored
+        )
+
+        self.assertEqual(2, len(records))
+        self.assertEqual(64, len(records[0].embedding))
+        self.assertAlmostEqual(1.0, sum(value * value for value in records[0].embedding), places=6)
+        self.assertEqual("研究员", restored.approved_by)
+        self.assertEqual([], findings)
+
     def test_conversation_session_preserves_messages_and_shared_state(self):
         session = ConversationSession()
         session.add("user", "分析供应链风险")
@@ -188,8 +213,8 @@ class FullParityTests(unittest.TestCase):
                 "reasoning": "结构化公司与公告证据",
             },
             propose_construction_plan=lambda goal, files, feedback: plan,
-            review_construction_plan=lambda goal, proposed: [],
-            propose_entity_types=lambda goal, files, feedback: ["Company", "RiskEvent"],
+            review_construction_plan=lambda goal, files, proposed: [],
+            propose_entity_types=lambda goal, files, well_known_types, feedback: ["Company", "RiskEvent"],
             propose_fact_types=lambda goal, entities, feedback: [
                 FactTypeDefinition("Company", "EXPOSED_TO", "RiskEvent", "风险暴露")
             ],

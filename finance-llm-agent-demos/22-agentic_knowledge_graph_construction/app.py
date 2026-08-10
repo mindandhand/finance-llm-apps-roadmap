@@ -13,11 +13,16 @@ from langgraph.types import Command
 from agents import AgentService, DeepSeekClient
 from file_suggestion import build_catalog_from_payloads
 from graph_utilities import GraphUtilities
-from kg_construction import collect_facts_from_files
+from kg_construction import (
+    build_domain_records,
+    build_markdown_records,
+    collect_facts_from_files,
+    correlate_entity_and_domain_keys,
+)
 from neo4j_store import Neo4jGraphStore
-from structured_schema_proposal import StructuredGraphPlan
+from structured_schema_proposal import ConstructionPlan, validate_construction_payloads
 from unstructured_schema_proposal import UnstructuredGraphPlan
-from workflow import build_full_construction_workflow
+from workflow import build_parity_workflow
 
 
 APP_DIR = Path(__file__).resolve().parent
@@ -72,8 +77,8 @@ st.markdown(
     <h1>金融关系与风险图谱构建实验室</h1>
     <p>让 Agent 规划图谱，但把数据选择、写库审批和证据核验留给研究员。</p></div>
     <div class="pipeline"><span>01 研究意图</span><b>→</b><span>02 文件推荐</span><b>→</b>
-    <span>03 Schema 提议</span><b>→</b><span>04 批判审核</span><b>→</b>
-    <span>05 人工批准</span><b>→</b><span>06 Neo4j 构图</span><b>→</b><span>07 GraphRAG</span></div>
+    <span>03 Schema ↔ Critic</span><b>→</b><span>04 NER 类型批准</span><b>→</b>
+    <span>05 Fact 类型批准</span><b>→</b><span>06 双图构建与关联</span><b>→</b><span>07 GraphRAG</span></div>
     """,
     unsafe_allow_html=True,
 )
@@ -110,23 +115,10 @@ with build_tab:
     catalog.update({item.name: item.getvalue() for item in uploads})
     catalog_samples = build_catalog_from_payloads(catalog)
 
-    left, right = st.columns([1, 2])
-    with left:
-        if st.button("让 Agent 推荐文件", use_container_width=True):
-            try:
-                st.session_state.suggestion = make_agent_service().suggest_files(goal, catalog_samples)
-            except Exception as exc:
-                st.error(str(exc))
-    with right:
-        suggestion = st.session_state.get("suggestion", {})
-        if suggestion:
-            st.info(f"推荐理由：{suggestion['reasoning']}")
-
-    default_files = st.session_state.get("suggestion", {}).get("selected_files", list(SAMPLE_FILES))
     selected_files = st.multiselect(
-        "研究员确认使用的文件",
+        "允许 Agent 检查的候选文件（最终范围稍后单独批准）",
         options=list(catalog),
-        default=[name for name in default_files if name in catalog],
+        default=list(SAMPLE_FILES),
     )
 
     if st.button("启动完整构图工作流", type="primary", use_container_width=True):
@@ -142,47 +134,76 @@ with build_tab:
                 def construct(state):
                     approved_files = state["selected_files"]
                     payloads = {name: catalog[name] for name in approved_files}
-                    structured_value = state.get("structured_plan")
-                    structured_plan = (
-                        StructuredGraphPlan.from_dict(structured_value)
-                        if structured_value
-                        else None
-                    )
-                    unstructured_value = state.get("unstructured_plan")
-                    unstructured_plan = (
-                        UnstructuredGraphPlan.from_dict(unstructured_value)
-                        if unstructured_value
-                        else None
+                    construction_plan: ConstructionPlan = state["construction_plan"]
+                    entity_session = state["entity_session"]
+                    fact_session = state["fact_session"]
+                    domain_batch = build_domain_records(payloads, construction_plan)
+                    extraction_plan = UnstructuredGraphPlan(
+                        entity_session.approved,
+                        [fact.predicate_label for fact in fact_session.approved],
+                        "markdown_delimiter",
+                        "由独立 NER Agent 和 Fact Agent 批准",
+                        fact_session.approved_by,
                     )
                     facts = collect_facts_from_files(
-                        payloads, structured_plan, unstructured_plan, service
+                        {name: content for name, content in payloads.items() if name.endswith(".md")},
+                        None,
+                        extraction_plan,
+                        service,
                     )
+                    chunks = build_markdown_records(payloads)
                     store = make_store()
                     try:
-                        return store.upsert_facts(facts)
+                        written = store.upsert_domain_batch(domain_batch)
+                        written += store.upsert_facts(facts)
+                        written += store.upsert_chunks(chunks)
+                        # 原版会比较抽取实体键与领域键，再创建 CORRESPONDS_TO。
+                        for label in entity_session.approved:
+                            node_rule = construction_plan.nodes.get(label)
+                            if node_rule is None:
+                                continue
+                            candidates = correlate_entity_and_domain_keys(
+                                label,
+                                ["name"],
+                                [node_rule.unique_column_name, *node_rule.properties],
+                                similarity=0.75,
+                            )
+                            if candidates:
+                                store.correlate_extracted_entities(label, "name", candidates[0][1])
+                        return written
                     finally:
                         store.close()
 
-                graph = build_full_construction_workflow(
-                    perceive_goal=service.perceive_goal,
-                    suggest_files=lambda approved_goal, names: service.suggest_files(
-                        approved_goal, selected_catalog(names)
+                graph = build_parity_workflow(
+                    perceive_goal=service.perceive_goal_conversation,
+                    suggest_files=lambda approved_goal, names, feedback: service.suggest_files_conversation(
+                        approved_goal, selected_catalog(names), feedback
                     ),
-                    propose_structured=lambda approved_goal, names: service.propose_structured_plan(
-                        approved_goal, selected_catalog(names)
+                    propose_construction_plan=lambda approved_goal, names, feedback: service.propose_construction_plan(
+                        approved_goal, selected_catalog(names), feedback
                     ),
-                    review_structured=service.review_structured_plan,
-                    revise_structured=service.revise_structured_plan,
-                    propose_unstructured=lambda approved_goal, names: service.propose_unstructured_plan(
-                        approved_goal, selected_catalog(names)
+                    review_construction_plan=lambda approved_goal, names, plan: [
+                        *validate_construction_payloads(
+                            {name: catalog[name] for name in names}, plan
+                        ),
+                        *service.review_construction_plan(approved_goal, plan),
+                    ],
+                    propose_entity_types=lambda approved_goal, names, known_types, feedback: service.propose_entity_types_conversation(
+                        approved_goal, selected_catalog(names), known_types, feedback
                     ),
+                    propose_fact_types=service.propose_fact_types_conversation,
                     construct_graph=construct,
                 )
                 config = {"configurable": {"thread_id": str(uuid.uuid4())}}
                 result = graph.invoke(
                     {
-                        "intent_message": goal,
+                        "messages": [{"role": "user", "content": goal}],
                         "available_files": selected_files,
+                        "goal_feedback": [],
+                        "file_feedback": [],
+                        "structured_feedback": [],
+                        "entity_feedback": [],
+                        "fact_feedback": [],
                         "status": "new",
                     },
                     config=config,
@@ -197,50 +218,68 @@ with build_tab:
     if result:
         status = result.get("status", "unknown")
         st.caption(f"当前状态：{status}")
+        if result.get("clarification_question"):
+            st.info(f"意图 Agent 需要澄清：{result['clarification_question']}")
         if result.get("perceived_goal"):
             st.markdown("**Agent 理解的研究目标**")
             st.json(result["perceived_goal"])
         if result.get("file_reasoning"):
             st.info(f"文件推荐理由：{result['file_reasoning']}")
             st.write("推荐文件：", result.get("selected_files", []))
-        if result.get("structured_plan"):
-            st.markdown("**结构化可执行构图计划**")
-            st.json(result["structured_plan"])
+        if result.get("construction_plan"):
+            st.markdown("**结构化节点、关系与属性施工计划**")
+            st.json(result["construction_plan"])
         if result.get("structured_findings"):
-            st.markdown("**批判 Agent 的审核意见**")
+            st.markdown("**Critic 已解决的意见**")
             for finding in result["structured_findings"]:
                 st.warning(finding)
-        if result.get("unstructured_plan"):
-            st.markdown("**非结构化实体与事实抽取计划**")
-            st.json(result["unstructured_plan"])
+        if result.get("entity_session"):
+            st.markdown("**NER Agent 提议的实体类型**")
+            st.write(result["entity_session"].get("proposed", []))
+        if result.get("fact_session"):
+            st.markdown("**Fact Agent 提议的事实类型**")
+            st.json(result["fact_session"].get("proposed", {}))
 
         approval_statuses = {
             "awaiting_goal_approval": "批准研究目标并继续",
             "awaiting_file_approval": "批准文件范围并继续",
-            "awaiting_structured_approval": "批准结构化计划并继续",
-            "awaiting_unstructured_approval": "批准非结构化计划并构图",
+            "awaiting_structured_approval": "批准节点/关系施工计划",
+            "awaiting_entity_approval": "批准实体类型并继续",
+            "awaiting_fact_approval": "批准事实类型并构图",
         }
-        if status in approval_statuses:
+        if status == "awaiting_clarification":
+            clarification = st.text_input("回答意图 Agent")
+            if st.button("提交补充信息", type="primary", use_container_width=True):
+                try:
+                    st.session_state.workflow_result = st.session_state.workflow_graph.invoke(
+                        Command(resume={"message": clarification}),
+                        config=st.session_state.workflow_config,
+                    )
+                    st.rerun()
+                except Exception as exc:
+                    st.error(str(exc))
+        elif status in approval_statuses:
             reviewer = st.text_input("审批人", value="研究员")
+            feedback = st.text_input("拒绝时的修改意见")
             approve_col, reject_col = st.columns(2)
             if approve_col.button(approval_statuses[status], type="primary", use_container_width=True):
                 try:
-                    decision = {"approved": True, "reviewer": reviewer}
-                    if status == "awaiting_file_approval":
-                        decision["selected_files"] = selected_files
                     st.session_state.workflow_result = st.session_state.workflow_graph.invoke(
-                        Command(resume=decision),
+                        Command(resume={"approved": True, "reviewer": reviewer}),
                         config=st.session_state.workflow_config,
                     )
                     st.rerun()
                 except Exception as exc:
                     st.error(str(exc))
             if reject_col.button("拒绝当前阶段", use_container_width=True):
-                st.session_state.workflow_result = st.session_state.workflow_graph.invoke(
-                    Command(resume={"approved": False, "reviewer": reviewer}),
-                    config=st.session_state.workflow_config,
-                )
-                st.rerun()
+                try:
+                    st.session_state.workflow_result = st.session_state.workflow_graph.invoke(
+                        Command(resume={"approved": False, "feedback": feedback}),
+                        config=st.session_state.workflow_config,
+                    )
+                    st.rerun()
+                except Exception as exc:
+                    st.error(str(exc))
         elif status == "completed":
             st.success(f"构图完成，共写入 {result.get('written_facts', 0)} 条带证据事实。")
         elif status == "rejected":

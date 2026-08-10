@@ -1,3 +1,3 @@
-shareholder_name,company_name,holding_ratio,report_date
-远航集团,远航汽车,0.42,2026-06-30
-稳健资本,华星科技,0.09,2026-06-30
+shareholder_code,company_code,holding_ratio,report_date
+I001,600001,0.42,2026-06-30
+I002,600002,0.09,2026-06-30

@@ -17,13 +17,18 @@ from core import (
 )
 from file_suggestion import build_file_suggestion_prompt, validate_suggestion
 from structured_schema_proposal import (
+    ConstructionPlan,
     StructuredGraphPlan,
     build_structured_critic_prompt,
     build_structured_schema_prompt,
     revise_structured_plan,
 )
 from tools import FileSample
-from unstructured_schema_proposal import UnstructuredGraphPlan, build_unstructured_schema_prompt
+from unstructured_schema_proposal import (
+    FactTypeDefinition,
+    UnstructuredGraphPlan,
+    build_unstructured_schema_prompt,
+)
 from user_intent import build_user_intent_prompt
 
 
@@ -93,6 +98,131 @@ class AgentService:
         if not kind or not description:
             raise ValueError("意图 Agent 未返回完整的研究目标。")
         return {"kind_of_graph": kind, "graph_description": description}
+
+    def perceive_goal_conversation(
+        self, messages: list[dict[str, str]], feedback: list[str]
+    ) -> dict[str, Any]:
+        """完整意图对话：模型可以继续追问，不能自行执行批准。"""
+        prompt = f"""你是金融知识图谱用例专家，负责与研究员共同明确图谱用途。
+可建议的金融场景包括：上市公司供应链、股权穿透、关联交易、风险传导、欺诈账户网络和投资组合暴露。
+
+用户目标必须包含：
+- kind_of_graph：不超过 3 个词的图谱类型；
+- graph_description：研究对象、关系范围和希望回答的问题。
+
+对话历史：{messages}
+用户对上一版理解的修改意见：{feedback or '暂无'}
+
+如果研究对象、关系范围或预期问题仍不清楚，请提出一个具体澄清问题；
+信息充分时只形成 perceived goal，必须等待用户另行批准。
+只返回 JSON：
+{{"needs_clarification": true, "question": "具体问题", "kind_of_graph": "", "graph_description": ""}}
+或
+{{"needs_clarification": false, "question": "", "kind_of_graph": "A股风险图谱", "graph_description": "..."}}
+"""
+        return parse_json_response(self.client.complete(prompt))
+
+    def suggest_files_conversation(
+        self,
+        goal: dict[str, str],
+        catalog: dict[str, FileSample],
+        feedback: list[str],
+    ) -> dict[str, Any]:
+        """让文件 Agent 先决定采样对象，再根据工具结果形成建议。"""
+        discovery = parse_json_response(
+            self.client.complete(
+                f"""你是金融知识图谱文件推荐 Agent。
+批准目标：{goal}；候选文件：{list(catalog)}；用户反馈：{feedback or '暂无'}。
+先判断哪些文件需要查看内容，不得猜测目录外文件。
+只返回 JSON：{{"sample_files": ["需要采样的文件"]}}"""
+            )
+        )
+        requested = [str(item) for item in discovery.get("sample_files", []) if str(item) in catalog]
+        samples = [catalog[name].as_dict() for name in requested]
+        result = parse_json_response(
+            self.client.complete(
+                f"""你是金融知识图谱文件推荐 Agent。
+批准目标：{goal}
+全部候选文件：{list(catalog)}
+按需采样结果：{samples}
+用户反馈：{feedback or '暂无'}
+请设置 suggested files 并说明逐个文件的用途，等待用户批准，不得自行批准。
+只返回 JSON：{{"selected_files": ["文件名"], "reasoning": "..."}}"""
+            )
+        )
+        return validate_suggestion(result, catalog)
+
+    def propose_construction_plan(
+        self,
+        goal: dict[str, str],
+        catalog: dict[str, FileSample],
+        feedback: list[str],
+    ) -> ConstructionPlan:
+        prompt = f"""你是金融 property graph 结构化 Schema Proposal Agent。
+批准目标：{goal}
+批准文件样本：{[sample.as_dict() for sample in catalog.values() if sample.kind == 'csv']}
+Critic 或用户反馈：{feedback or '暂无'}
+
+必须为实体文件生成节点施工规则：source_file、label、unique_column_name、properties；
+必须为关系或外键生成关系施工规则：source_file、relationship_type、from/to 节点标签、
+from/to 文件列、from/to 节点唯一键和关系 properties。所有批准 CSV 都要有用途，图必须连通。
+只返回 JSON：
+{{"nodes": {{"Company": {{"source_file": "companies.csv", "label": "Company",
+"unique_column_name": "company_code", "properties": ["company_name"]}}}},
+"relationships": {{"SUPPLIES": {{"source_file": "relationships.csv", "relationship_type": "SUPPLIES",
+"from_node_label": "Company", "from_node_column": "supplier_code", "from_node_key": "company_code",
+"to_node_label": "Company", "to_node_column": "customer_code", "to_node_key": "company_code",
+"properties": ["annual_purchase_ratio"]}}}}}}
+"""
+        return ConstructionPlan.from_dict(parse_json_response(self.client.complete(prompt)))
+
+    def review_construction_plan(
+        self, goal: dict[str, str], plan: ConstructionPlan
+    ) -> list[str]:
+        value = parse_json_response(
+            self.client.complete(
+                f"""你是独立的金融 Schema Critic Agent。
+批准目标：{goal}；施工计划：{plan.as_dict()}。
+检查唯一键、字段、节点/关系方向、属性、文件覆盖、孤立节点和研究问题相关性。
+只返回 JSON：{{"findings": []}}；没有问题时必须返回空数组。"""
+            )
+        )
+        findings = value.get("findings", [])
+        if not isinstance(findings, list):
+            raise ValueError("Schema Critic findings 必须是数组。")
+        return [str(item).strip() for item in findings if str(item).strip()]
+
+    def propose_entity_types_conversation(
+        self,
+        goal: dict[str, str],
+        catalog: dict[str, FileSample],
+        well_known_types: list[str],
+        feedback: list[str],
+    ) -> list[str]:
+        value = parse_json_response(
+            self.client.complete(
+                f"""你是金融命名实体 Schema Agent。批准目标：{goal}。
+Markdown 样本：{[item.as_dict() for item in catalog.values() if item.kind == 'md']}。
+领域图已有标签：{well_known_types}；用户反馈：{feedback or '暂无'}。
+优先复用已有标签，再提议文本中确有必要的新实体类型，等待单独批准。
+只返回 JSON：{{"entity_types": ["Company", "RiskEvent"]}}"""
+            )
+        )
+        return [str(item).strip() for item in value.get("entity_types", []) if str(item).strip()]
+
+    def propose_fact_types_conversation(
+        self, goal: dict[str, str], approved_entities: list[str], feedback: list[str]
+    ) -> list[FactTypeDefinition]:
+        value = parse_json_response(
+            self.client.complete(
+                f"""你是金融事实类型 Agent。批准目标：{goal}；已批准实体：{approved_entities}；
+用户反馈：{feedback or '暂无'}。每项事实必须明确 subject_label、predicate_label、object_label 和 description，
+且主宾语只能引用已批准实体。等待用户独立批准事实类型。
+只返回 JSON：{{"fact_types": [{{"subject_label": "Company", "predicate_label": "EXPOSED_TO",
+"object_label": "RiskEvent", "description": "公司暴露于风险事件"}}]}}"""
+            )
+        )
+        return [FactTypeDefinition.from_dict(item) for item in value.get("fact_types", [])]
 
     def suggest_files(
         self, goal: str, catalog: list[str] | dict[str, FileSample]

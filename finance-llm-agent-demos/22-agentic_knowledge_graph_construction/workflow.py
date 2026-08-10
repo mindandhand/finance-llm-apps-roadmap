@@ -11,6 +11,8 @@ from langgraph.types import Command, interrupt
 from core import GraphPlan
 from structured_schema_proposal import StructuredGraphPlan
 from unstructured_schema_proposal import UnstructuredGraphPlan
+from structured_schema_proposal import ConstructionPlan
+from unstructured_schema_proposal import EntityTypeSession, FactTypeDefinition, FactTypeSession
 
 
 class ConstructionState(TypedDict):
@@ -94,6 +96,7 @@ class FullConstructionState(TypedDict, total=False):
 
     intent_message: str
     perceived_goal: dict[str, str]
+    clarification_question: str
     goal_approved_by: str
     available_files: list[str]
     suggested_files: list[str]
@@ -304,3 +307,226 @@ def _approval_decision(decision: object) -> tuple[bool, str]:
         return False, ""
     reviewer = str(decision.get("reviewer", "")).strip()
     return bool(decision.get("approved")) and bool(reviewer), reviewer
+
+
+class ParityState(TypedDict, total=False):
+    """与原对话式 Agent 阶段一一对应的共享状态。"""
+
+    messages: list[dict[str, str]]
+    available_files: list[str]
+    goal_feedback: list[str]
+    file_feedback: list[str]
+    structured_feedback: list[str]
+    entity_feedback: list[str]
+    fact_feedback: list[str]
+    perceived_goal: dict[str, str]
+    goal_approved_by: str
+    selected_files: list[str]
+    file_reasoning: str
+    files_approved_by: str
+    construction_plan: dict[str, Any]
+    structured_findings: list[str]
+    entity_session: dict[str, Any]
+    fact_session: dict[str, Any]
+    status: str
+    written_facts: int
+
+
+def build_parity_workflow(
+    *,
+    perceive_goal: Callable[[list[dict[str, str]], list[str]], dict[str, Any]],
+    suggest_files: Callable[[dict[str, str], list[str], list[str]], dict[str, Any]],
+    propose_construction_plan: Callable[[dict[str, str], list[str], list[str]], ConstructionPlan],
+    review_construction_plan: Callable[[dict[str, str], list[str], ConstructionPlan], list[str]],
+    propose_entity_types: Callable[[dict[str, str], list[str], list[str], list[str]], list[str]],
+    propose_fact_types: Callable[
+        [dict[str, str], list[str], list[str]], list[FactTypeDefinition]
+    ],
+    construct_graph: Callable[[ParityState], int],
+):
+    """恢复原版对话/工具行为，同时用 LangGraph 实现可恢复人工门禁。"""
+
+    def perceive_node(state: ParityState) -> dict[str, Any]:
+        result = perceive_goal(state["messages"], state.get("goal_feedback", []))
+        if result.get("needs_clarification"):
+            question = str(result.get("question", "")).strip()
+            if not question:
+                raise ValueError("意图 Agent 要求澄清时必须返回问题。")
+            return {"status": "awaiting_clarification", "clarification_question": question}
+        goal = {
+            "kind_of_graph": str(result.get("kind_of_graph", "")).strip(),
+            "graph_description": str(result.get("graph_description", "")).strip(),
+        }
+        if not all(goal.values()):
+            raise ValueError("意图 Agent 未形成完整 perceived goal。")
+        return {"perceived_goal": goal, "status": "awaiting_goal_approval"}
+
+    def goal_gate(state: ParityState) -> Command[Literal["suggest", "perceive"]]:
+        decision = interrupt({"stage": "goal", "goal": state["perceived_goal"]})
+        approved, reviewer = _approval_decision(decision)
+        if approved:
+            return Command(update={"goal_approved_by": reviewer, "status": "goal_approved"}, goto="suggest")
+        feedback = _feedback(decision, "拒绝研究目标时必须提供修改意见。")
+        return Command(
+            update={"goal_feedback": [*state.get("goal_feedback", []), feedback], "status": "clarifying"},
+            goto="perceive",
+        )
+
+    def clarification_node(state: ParityState) -> Command[Literal["perceive"]]:
+        answer = interrupt(
+            {"stage": "clarification", "question": state["clarification_question"]}
+        )
+        content = (
+            str(answer.get("message", "")).strip() if isinstance(answer, dict) else str(answer).strip()
+        )
+        if not content:
+            raise ValueError("请回答意图 Agent 的澄清问题。")
+        messages = [
+            *state["messages"],
+            {"role": "assistant", "content": state["clarification_question"]},
+            {"role": "user", "content": content},
+        ]
+        return Command(update={"messages": messages, "status": "clarifying"}, goto="perceive")
+
+    def suggest_node(state: ParityState) -> dict[str, Any]:
+        result = suggest_files(
+            state["perceived_goal"], state["available_files"], state.get("file_feedback", [])
+        )
+        allowed = set(state["available_files"])
+        selected = [str(item) for item in result.get("selected_files", []) if str(item) in allowed]
+        if not selected:
+            raise ValueError("文件 Agent 未推荐任何候选目录内文件。")
+        return {
+            "selected_files": selected,
+            "file_reasoning": str(result.get("reasoning", "")).strip(),
+            "status": "awaiting_file_approval",
+        }
+
+    def file_gate(state: ParityState) -> Command[Literal["structured", "suggest"]]:
+        decision = interrupt({"stage": "files", "files": state["selected_files"]})
+        approved, reviewer = _approval_decision(decision)
+        if approved:
+            return Command(update={"files_approved_by": reviewer, "status": "files_approved"}, goto="structured")
+        feedback = _feedback(decision, "拒绝文件建议时必须提供修改意见。")
+        return Command(
+            update={"file_feedback": [*state.get("file_feedback", []), feedback]}, goto="suggest"
+        )
+
+    def structured_node(state: ParityState) -> dict[str, Any]:
+        plan = propose_construction_plan(
+            state["perceived_goal"], state["selected_files"], state.get("structured_feedback", [])
+        )
+        findings: list[str] = []
+        for _ in range(3):
+            current = review_construction_plan(state["perceived_goal"], state["selected_files"], plan)
+            if not current:
+                break
+            findings.extend(current)
+            plan.feedback.extend(current)
+            plan = propose_construction_plan(state["perceived_goal"], state["selected_files"], plan.feedback)
+        else:
+            raise ValueError("结构化施工计划连续三轮未通过 Critic。")
+        return {
+            "construction_plan": plan.as_dict(),
+            "structured_findings": findings,
+            "status": "awaiting_structured_approval",
+        }
+
+    def structured_gate(state: ParityState) -> Command[Literal["entities", "structured"]]:
+        plan = ConstructionPlan.from_dict(state["construction_plan"])
+        decision = interrupt({"stage": "structured", "plan": plan.as_dict()})
+        approved, reviewer = _approval_decision(decision)
+        if approved:
+            plan.approve(reviewer)
+            return Command(update={"construction_plan": plan.as_dict()}, goto="entities")
+        feedback = _feedback(decision, "拒绝施工计划时必须提供修改意见。")
+        return Command(
+            update={"structured_feedback": [*state.get("structured_feedback", []), feedback]},
+            goto="structured",
+        )
+
+    def entity_node(state: ParityState) -> dict[str, Any]:
+        plan = ConstructionPlan.from_dict(state["construction_plan"])
+        proposed = propose_entity_types(
+            state["perceived_goal"],
+            state["selected_files"],
+            sorted(plan.nodes),
+            state.get("entity_feedback", []),
+        )
+        session = EntityTypeSession()
+        session.set_proposed(proposed)
+        return {"entity_session": session.as_dict(), "status": "awaiting_entity_approval"}
+
+    def entity_gate(state: ParityState) -> Command[Literal["facts", "entities"]]:
+        session = EntityTypeSession.from_dict(state["entity_session"])
+        decision = interrupt({"stage": "entities", "entity_types": session.proposed})
+        approved, reviewer = _approval_decision(decision)
+        if approved:
+            session.approve(reviewer)
+            return Command(update={"entity_session": session.as_dict()}, goto="facts")
+        feedback = _feedback(decision, "拒绝实体类型时必须提供修改意见。")
+        return Command(
+            update={"entity_feedback": [*state.get("entity_feedback", []), feedback]}, goto="entities"
+        )
+
+    def fact_node(state: ParityState) -> dict[str, Any]:
+        entities = EntityTypeSession.from_dict(state["entity_session"])
+        proposed = propose_fact_types(
+            state["perceived_goal"], entities.approved, state.get("fact_feedback", [])
+        )
+        session = FactTypeSession(entities.approved)
+        for fact in proposed:
+            session.add_proposed(fact)
+        return {"fact_session": session.as_dict(), "status": "awaiting_fact_approval"}
+
+    def fact_gate(state: ParityState) -> Command[Literal["construct", "facts"]]:
+        session = FactTypeSession.from_dict(state["fact_session"])
+        decision = interrupt({"stage": "facts", "fact_types": [fact.as_dict() for fact in session.proposed.values()]})
+        approved, reviewer = _approval_decision(decision)
+        if approved:
+            session.approve(reviewer)
+            return Command(update={"fact_session": session.as_dict()}, goto="construct")
+        feedback = _feedback(decision, "拒绝事实类型时必须提供修改意见。")
+        return Command(update={"fact_feedback": [*state.get("fact_feedback", []), feedback]}, goto="facts")
+
+    def construct_node(state: ParityState) -> dict[str, Any]:
+        plan = ConstructionPlan.from_dict(state["construction_plan"])
+        entities = EntityTypeSession.from_dict(state["entity_session"])
+        facts = FactTypeSession.from_dict(state["fact_session"])
+        if not plan.approved_by:
+            raise RuntimeError("结构化施工计划未批准。")
+        if not entities.approved_by or not facts.approved_by:
+            raise RuntimeError("实体类型或事实类型未批准。")
+        callback_state = dict(state)
+        callback_state.update(
+            {"construction_plan": plan, "entity_session": entities, "fact_session": facts}
+        )
+        return {"written_facts": construct_graph(callback_state), "status": "completed"}
+
+    builder = StateGraph(ParityState)
+    for name, node in (
+        ("perceive", perceive_node), ("clarification", clarification_node),
+        ("goal_gate", goal_gate), ("suggest", suggest_node),
+        ("file_gate", file_gate), ("structured", structured_node), ("structured_gate", structured_gate),
+        ("entities", entity_node), ("entity_gate", entity_gate), ("facts", fact_node),
+        ("fact_gate", fact_gate), ("construct", construct_node),
+    ):
+        builder.add_node(name, node)
+    builder.add_edge(START, "perceive")
+    builder.add_conditional_edges(
+        "perceive",
+        lambda state: "clarification" if state["status"] == "awaiting_clarification" else "goal_gate",
+        {"clarification": "clarification", "goal_gate": "goal_gate"},
+    )
+    builder.add_edge("suggest", "file_gate")
+    builder.add_edge("structured", "structured_gate")
+    builder.add_edge("entities", "entity_gate")
+    builder.add_edge("facts", "fact_gate")
+    builder.add_edge("construct", END)
+    return builder.compile(checkpointer=InMemorySaver())
+
+
+def _feedback(decision: object, message: str) -> str:
+    if not isinstance(decision, dict) or not str(decision.get("feedback", "")).strip():
+        raise ValueError(message)
+    return str(decision["feedback"]).strip()

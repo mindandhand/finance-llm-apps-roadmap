@@ -1,6 +1,7 @@
 import unittest
 
 from agents import AgentService, parse_json_response
+from tools import FileSample
 
 
 class FakeClient:
@@ -58,6 +59,46 @@ class AgentServiceTests(unittest.TestCase):
         self.assertEqual(["relationships.csv"], suggestion["selected_files"])
         self.assertEqual("覆盖关系和风险", suggestion["reasoning"])
         self.assertIn("候选文件目录", client.prompts[0])
+
+    def test_conversational_agents_preserve_all_original_stages(self):
+        client = FakeClient(
+            [
+                '{"needs_clarification": false, "question": "", "kind_of_graph": "A股风险图谱", "graph_description": "追踪风险"}',
+                '{"sample_files": ["companies.csv"]}',
+                '{"selected_files": ["companies.csv"], "reasoning": "公司主数据"}',
+                '{"nodes": {"Company": {"source_file": "companies.csv", "label": "Company", '
+                '"unique_column_name": "company_code", "properties": ["company_name"]}}, "relationships": {}}',
+                '{"findings": []}',
+                '{"entity_types": ["Company", "RiskEvent"]}',
+                '{"fact_types": [{"subject_label": "Company", "predicate_label": "EXPOSED_TO", '
+                '"object_label": "RiskEvent", "description": "风险暴露"}]}',
+                '{"strategy": "multi_hop"}',
+            ]
+        )
+        service = AgentService(client)
+        catalog = {
+            "companies.csv": FileSample(
+                "companies.csv", "csv", ["company_code", "company_name"], "600001,远航汽车", 40
+            )
+        }
+
+        goal = service.perceive_goal_conversation(
+            [{"role": "user", "content": "分析公司风险"}], []
+        )
+        suggestion = service.suggest_files_conversation(goal, catalog, [])
+        plan = service.propose_construction_plan(goal, catalog, [])
+        findings = service.review_construction_plan(goal, plan)
+        entities = service.propose_entity_types_conversation(goal, catalog, ["Company"], [])
+        facts = service.propose_fact_types_conversation(goal, entities, [])
+        strategy = service.select_retrieval_strategy("风险如何向下游传导？")
+
+        self.assertEqual(["companies.csv"], suggestion["selected_files"])
+        self.assertEqual("company_code", plan.nodes["Company"].unique_column_name)
+        self.assertEqual([], findings)
+        self.assertEqual(["Company", "RiskEvent"], entities)
+        self.assertEqual("EXPOSED_TO", facts[0].predicate_label)
+        self.assertEqual("multi_hop", strategy)
+        self.assertIn("按需采样结果", client.prompts[2])
 
 
 if __name__ == "__main__":

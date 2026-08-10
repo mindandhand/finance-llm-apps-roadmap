@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from helper import ConversationMessage, ConversationSession
+
 
 @dataclass(frozen=True)
 class UserGoal:
@@ -71,3 +73,55 @@ def build_user_intent_prompt(message: str, perceived_goal: UserGoal | None = Non
 只返回 JSON：
 {{"needs_clarification": false, "question": "", "kind_of_graph": "上市公司风险图谱", "graph_description": "..."}}
 """
+
+
+class IntentConversation:
+    """保留原意图 Agent 的多轮澄清、修订、拒绝和批准行为。"""
+
+    def __init__(self) -> None:
+        self.session = ConversationSession()
+        self.feedback: list[str] = []
+        self.perceived_goal: UserGoal | None = None
+        self.approved_goal: UserGoal | None = None
+        self.approved_by: str | None = None
+        self.phase = "clarifying"
+
+    @property
+    def messages(self) -> list[ConversationMessage]:
+        return self.session.messages
+
+    def add_user_message(self, message: str) -> None:
+        self.session.add("user", message)
+
+    def ask_clarification(self, question: str) -> None:
+        self.session.add("assistant", question)
+        self.phase = "clarifying"
+
+    def set_perceived_goal(self, kind_of_graph: str, graph_description: str) -> UserGoal:
+        self.perceived_goal = UserGoal.create(kind_of_graph, graph_description)
+        self.approved_goal = None
+        self.approved_by = None
+        self.phase = "awaiting_goal_approval"
+        self.session.state["perceived_user_goal"] = self.perceived_goal.as_dict()
+        return self.perceived_goal
+
+    def reject_goal(self, feedback: str) -> None:
+        text = feedback.strip()
+        if not text:
+            raise ValueError("拒绝目标时必须说明需要修改的内容。")
+        self.feedback.append(text)
+        self.session.add("assistant", f"已记录目标修改意见：{text}")
+        self.approved_goal = None
+        self.phase = "clarifying"
+
+    def approve_goal(self, reviewer: str) -> UserGoal:
+        if self.perceived_goal is None:
+            raise ValueError("请先形成 perceived user goal。")
+        name = reviewer.strip()
+        if not name:
+            raise ValueError("意图审批人不能为空。")
+        self.approved_goal = self.perceived_goal
+        self.approved_by = name
+        self.phase = "approved"
+        self.session.state["approved_user_goal"] = self.approved_goal.as_dict()
+        return self.approved_goal

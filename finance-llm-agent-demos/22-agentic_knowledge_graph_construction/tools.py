@@ -36,7 +36,19 @@ def tool_success(key: str, value: object) -> dict[str, object]:
 
 
 def tool_error(message: str) -> dict[str, str]:
-    return {"status": "error", "message": message}
+    return {"status": "error", "error_message": message}
+
+
+def get_approved_user_goal(state: dict[str, object]) -> dict[str, object]:
+    if "approved_user_goal" not in state:
+        return tool_error("approved_user_goal 未设置，请继续澄清并让用户批准研究目标。")
+    return tool_success("approved_user_goal", state["approved_user_goal"])
+
+
+def get_approved_files(state: dict[str, object]) -> dict[str, object]:
+    if "approved_files" not in state:
+        return tool_error("approved_files 未设置，请先完成文件建议和人工批准。")
+    return tool_success("approved_files", state["approved_files"])
 
 
 def sample_file(name: str, content: bytes, max_chars: int = 1200) -> FileSample:
