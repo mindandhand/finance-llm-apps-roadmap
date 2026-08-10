@@ -129,6 +129,34 @@ class Neo4jGraphStoreTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             store.create_uniqueness_constraint("Company`) MATCH (n)", "company_code")
 
+    def test_entity_correlation_uses_fuzzy_value_matching(self):
+        session = FakeSession([FakeResult(single_value={"relationship_count": 2})])
+        store = Neo4jGraphStore(driver=FakeDriver(session))
+
+        count = store.correlate_extracted_entities("Company", "name", "company_name", similarity=0.9)
+
+        self.assertEqual(2, count)
+        self.assertIn("apoc.text.jaroWinklerDistance", session.calls[0][0])
+        self.assertEqual(0.1, session.calls[0][1]["distance"])
+
+    def test_graph_schema_introspection_lists_extracted_and_domain_keys(self):
+        session = FakeSession(
+            [
+                FakeResult(single_value={"labels": ["Company", "RiskEvent"]}),
+                FakeResult(single_value={"keys": ["name"]}),
+                FakeResult(single_value={"keys": ["company_code", "company_name"]}),
+            ]
+        )
+        store = Neo4jGraphStore(driver=FakeDriver(session))
+
+        labels = store.find_extracted_entity_labels()
+        entity_keys = store.find_extracted_entity_keys("Company")
+        domain_keys = store.find_domain_keys("Company")
+
+        self.assertEqual(["Company", "RiskEvent"], labels)
+        self.assertEqual(["name"], entity_keys)
+        self.assertEqual(["company_code", "company_name"], domain_keys)
+
 
 if __name__ == "__main__":
     unittest.main()
