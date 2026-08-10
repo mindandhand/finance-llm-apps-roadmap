@@ -46,6 +46,19 @@ class AgentServiceTests(unittest.TestCase):
         self.assertIn("[1]", answer)
         self.assertIn("证据不足", client.prompts[0])
 
+    def test_file_suggestion_agent_returns_only_catalog_files(self):
+        client = FakeClient(
+            ['{"selected_files": ["relationships.csv", "unknown.csv"], "reasoning": "覆盖关系和风险"}']
+        )
+
+        suggestion = AgentService(client).suggest_files(
+            "追踪风险", ["relationships.csv", "risk_report.md"]
+        )
+
+        self.assertEqual(["relationships.csv"], suggestion["selected_files"])
+        self.assertEqual("覆盖关系和风险", suggestion["reasoning"])
+        self.assertIn("候选文件目录", client.prompts[0])
+
 
 if __name__ == "__main__":
     unittest.main()
