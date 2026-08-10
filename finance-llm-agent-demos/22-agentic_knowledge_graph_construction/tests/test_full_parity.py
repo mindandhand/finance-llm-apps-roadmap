@@ -22,6 +22,9 @@ from unstructured_schema_proposal import (
     FactTypeSession,
 )
 from user_intent import IntentConversation
+from workflow import build_parity_workflow
+
+from langgraph.types import Command
 
 
 class FullParityTests(unittest.TestCase):
@@ -164,6 +167,61 @@ class FullParityTests(unittest.TestCase):
 
         self.assertEqual("请确认研究范围", session.messages[-1].content)
         self.assertIn("perceived_user_goal", session.snapshot()["state"])
+
+    def test_parity_workflow_keeps_five_independent_approval_gates(self):
+        constructed = []
+        plan = ConstructionPlan(
+            nodes={
+                "Company": NodeConstructionRule(
+                    "companies.csv", "Company", "company_code", ["company_name"]
+                )
+            }
+        )
+        graph = build_parity_workflow(
+            perceive_goal=lambda messages, feedback: {
+                "needs_clarification": False,
+                "kind_of_graph": "A股风险图谱",
+                "graph_description": "追踪供应链风险",
+            },
+            suggest_files=lambda goal, files, feedback: {
+                "selected_files": ["companies.csv", "risk.md"],
+                "reasoning": "结构化公司与公告证据",
+            },
+            propose_construction_plan=lambda goal, files, feedback: plan,
+            review_construction_plan=lambda goal, proposed: [],
+            propose_entity_types=lambda goal, files, feedback: ["Company", "RiskEvent"],
+            propose_fact_types=lambda goal, entities, feedback: [
+                FactTypeDefinition("Company", "EXPOSED_TO", "RiskEvent", "风险暴露")
+            ],
+            construct_graph=lambda state: constructed.append(state) or 3,
+        )
+        config = {"configurable": {"thread_id": "parity-five-gates"}}
+        pending = graph.invoke(
+            {"messages": [{"role": "user", "content": "分析公司风险"}], "available_files": ["companies.csv", "risk.md"]},
+            config=config,
+        )
+
+        expected = [
+            "awaiting_goal_approval",
+            "awaiting_file_approval",
+            "awaiting_structured_approval",
+            "awaiting_entity_approval",
+            "awaiting_fact_approval",
+        ]
+        for index, status in enumerate(expected):
+            self.assertEqual(status, pending["status"])
+            if index < len(expected) - 1:
+                pending = graph.invoke(
+                    Command(resume={"approved": True, "reviewer": "研究员"}), config=config
+                )
+
+        completed = graph.invoke(
+            Command(resume={"approved": True, "reviewer": "研究员"}), config=config
+        )
+        self.assertEqual("completed", completed["status"])
+        self.assertEqual("研究员", constructed[0]["construction_plan"].approved_by)
+        self.assertEqual("研究员", constructed[0]["entity_session"].approved_by)
+        self.assertEqual("研究员", constructed[0]["fact_session"].approved_by)
 
 
 if __name__ == "__main__":
