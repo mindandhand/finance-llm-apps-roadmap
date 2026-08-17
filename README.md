@@ -174,6 +174,14 @@ cd finance-llm-agent-demos
 ./scripts/run_21_agent.sh
 ```
 
+启动 22 Agent 驱动的金融知识图谱构建：
+
+```bash
+cd finance-llm-agent-demos
+./scripts/run_22_services.sh
+./scripts/run_22_agent.sh
+```
+
 ## 项目列表
 
 - `01-ai_finance_agent`：DeepSeek + Agno AgentOS + Yahoo Finance + DuckDuckGo。
@@ -197,6 +205,7 @@ cd finance-llm-agent-demos
 - `19-market_event_radar_agent`：市场公告、新闻和监管事件 Radar。
 - `20-insurance_claim_text_agent_team`：纯文本保险理赔 intake 和交接包。
 - `21-finance_dashboard_generator`：模板化本地金融仪表盘生成器。
+- `22-agentic_knowledge_graph_construction`：DeepSeek + LangGraph + Neo4j，将金融研究意图、文件推荐、Schema 批判、人工审批、双通道构图和 GraphRAG 串成完整工作流；建议先完成 13。
 
 ## 常见问题
 
