@@ -14,7 +14,7 @@ import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { Observable } from "rxjs";
 import crypto from "crypto";
 import { z } from "zod";
-import { E2BWorkspaceProvider } from "@/lib/workspace/e2b";
+import { getProvider } from "@/lib/workspace";
 import { getDefaultMcpServers, type McpServerConfig } from "@/lib/mcp-defaults";
 
 // 为较长的 Agent 循环预留最多 5 分钟
@@ -396,17 +396,16 @@ function createMcpUIMiddleware(
   };
 }
 
-// ── E2B 工作区 Provider：无状态，可安全地跨请求复用 ─────────────────────────
+// ── 工作区 Provider：按环境选择 Podman 或 E2B，可安全地跨请求复用 ────────────
 
-const workspaceProvider = new E2BWorkspaceProvider();
+const workspaceProvider = getProvider();
 
 // ── 后端工具：在 Agent 循环中由 Server 端运行 ────────────────────────────────
 
 const workspaceTools: Record<string, unknown> = {
   provision_workspace: {
     description:
-      "Create an E2B sandbox from the pre-built mcp-use-server template. " +
-      "With a template this takes ~3 s (deps + server are baked in). " +
+      "Create an isolated workspace from the pre-built mcp-use-server template. " +
       "Returns workspaceId and endpoint. " +
       "After success, ALWAYS call add_mcp_server(endpoint, serverId) " +
       "and set_active_workspace(workspaceId, endpoint) so the UI updates.",
@@ -472,7 +471,7 @@ const workspaceTools: Record<string, unknown> = {
 
   read_file: {
     description:
-      "Read a file from the active E2B workspace. Path is relative to workspace root " +
+      "Read a file from the active workspace. Path is relative to workspace root " +
       "(/home/user/workspace). Use this to inspect existing code before editing.",
     parameters: z.object({
       workspaceId: z
@@ -495,7 +494,7 @@ const workspaceTools: Record<string, unknown> = {
 
   write_file: {
     description:
-      "Write (create or overwrite) a file in the active E2B workspace. " +
+      "Write (create or overwrite) a file in the active workspace. " +
       "Parent directories are created automatically. Path is relative to workspace root.",
     parameters: z.object({
       workspaceId: z.string().describe("Sandbox ID"),
@@ -565,7 +564,7 @@ const workspaceTools: Record<string, unknown> = {
 
   exec: {
     description:
-      "Run a shell command in the workspace root of the active E2B sandbox. " +
+      "Run a shell command in the active workspace root. " +
       "Use background=true for long-running processes. " +
       "Note: fuser and lsof are NOT available — use ss for port lookups.",
     parameters: z.object({
@@ -660,7 +659,7 @@ const workspaceTools: Record<string, unknown> = {
   },
 
   get_workspace_info: {
-    description: "Get current status and endpoint of the active E2B sandbox.",
+    description: "Get current status and endpoint of the active workspace sandbox.",
     parameters: z.object({
       workspaceId: z.string().describe("Sandbox ID"),
     }),
@@ -687,7 +686,7 @@ const workspaceTools: Record<string, unknown> = {
 
 // ── 系统 Prompt ──────────────────────────────────────────────────────────────
 
-const AGENT_SYSTEM_PROMPT = `你是 MCP UI Studio 编码 Agent，负责在 E2B 沙箱中构建 MCP UI 工具，并使用已有的 MCP 工具。
+const AGENT_SYSTEM_PROMPT = `你是 MCP UI Studio 编码 Agent，负责在隔离的工作区沙箱中构建 MCP UI 工具，并使用已有的 MCP 工具。
 
 规则：
 1. 工具调用后绝不能直接停止，必须继续下一步或发送消息。

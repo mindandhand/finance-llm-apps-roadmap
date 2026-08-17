@@ -15,6 +15,15 @@ fi
 
 export OPENAI_BASE_URL="${MCP_LLM_BASE_URL:-https://api.deepseek.com/v1}"
 export OPENAI_MODEL="${MCP_LLM_MODEL:-deepseek-v4-pro}"
+export WORKSPACE_PROVIDER="${WORKSPACE_PROVIDER:-podman}"
+
+if [[ "$WORKSPACE_PROVIDER" == "podman" ]]; then
+  if ! command -v podman >/dev/null 2>&1; then
+    echo "提示：未找到 podman；页面仍可启动，但创建本地工作区前必须安装 Podman。" >&2
+  elif ! podman image exists "${PODMAN_SANDBOX_IMAGE:-mcp-app-builder-sandbox:local}"; then
+    echo "提示：本地沙箱镜像尚未构建。运行 09-ai-mcp-app-builder/scripts/build-podman-sandbox.sh。" >&2
+  fi
+fi
 
 cd "$DEMO_DIR"
 exec pnpm dev "$@"

@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import Image from "next/image";
 import { CopilotChat } from "@copilotkit/react-core/v2";
 import { useCopilotChat } from "@copilotkit/react-core";
 import type { WorkspaceInfo } from "@/lib/workspace/types";
@@ -26,7 +25,6 @@ import {
   getHeaderPrimaryCtaLabel,
   getHeaderSecondaryCtaUrl,
 } from "./constants/branding";
-import copilotKitLogo from "./image.png";
 
 // ---------------------------------------------------------------------------
 // 模块级常量：保持引用稳定，避免重复渲染
@@ -129,15 +127,11 @@ function TopBar() {
             className="inline-flex min-w-0 shrink rounded-md outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-slate-400"
             aria-label="CopilotKit：打开 GitHub 仓库"
           >
-            <Image
-              src={copilotKitLogo}
-              alt=""
-              width={copilotKitLogo.width}
-              height={copilotKitLogo.height}
-              className="h-[18px] w-auto max-w-[min(160px,38vw)] sm:h-[22px] sm:max-w-[200px]"
-              priority
-              sizes="(max-width: 640px) 38vw, 200px"
-            />
+            {/* 原图片由 Git LFS 管理，但上游对象已经丢失。文字标识保留相同的
+                品牌入口和可访问名称，同时避免构建依赖不可恢复的二进制资源。 */}
+            <span className="whitespace-nowrap text-sm font-semibold tracking-tight text-slate-800 sm:text-base">
+              CopilotKit
+            </span>
           </a>
         </div>
       </div>
@@ -210,7 +204,7 @@ function StudioView({
     return () => mq.removeEventListener("change", apply);
   }, []);
 
-  // 挂载时从 localStorage 恢复最近的工作区，避免每次刷新页面都重新创建 E2B 沙箱
+  // 挂载时从 localStorage 恢复最近的工作区，避免每次刷新页面都重新创建沙箱
   useEffect(() => {
     try {
       const raw = localStorage.getItem("mcp_active_workspace");

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, realpath, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -26,12 +26,9 @@ test("显式选择 e2b 时要求 E2B API Key", () => {
   assert.equal(selectWorkspaceProvider("e2b", "e2b-test"), "e2b");
 });
 
-test("未设置 Provider 时，有 E2B Key 才沿用 E2B", () => {
+test("未设置 Provider 时，有 E2B Key 沿用 E2B，否则默认 Podman", () => {
   assert.equal(selectWorkspaceProvider(undefined, "e2b-test"), "e2b");
-  assert.throws(
-    () => selectWorkspaceProvider(undefined, undefined),
-    /WORKSPACE_PROVIDER/,
-  );
+  assert.equal(selectWorkspaceProvider(undefined, undefined), "podman");
 });
 
 test("工作区 ID 只接受服务端生成的安全格式", () => {
@@ -49,7 +46,7 @@ test("路径解析拒绝绝对路径和父目录越界", async () => {
 
   assert.equal(
     await resolveWorkspacePath(root, "tools/demo.ts", { forWrite: true }),
-    path.join(root, "tools", "demo.ts"),
+    path.join(await realpath(root), "tools", "demo.ts"),
   );
   await assert.rejects(
     resolveWorkspacePath(root, "../secret", { forWrite: true }),
@@ -94,10 +91,13 @@ test("Podman 容器参数包含隔离、配额和本机端口绑定", () => {
   assert.ok(args.includes("--read-only"));
   assert.ok(args.includes("--cap-drop=all"));
   assert.ok(args.includes("--security-opt=no-new-privileges"));
+  assert.ok(args.includes("--http-proxy=false"));
   assert.ok(args.includes("--memory=1g"));
   assert.ok(args.includes("--cpus=1"));
   assert.ok(args.includes("--pids-limit=256"));
-  assert.ok(args.includes("127.0.0.1::3109"));
-  assert.ok(args.includes("/tmp/workspaces/podman-01234567:/workspace:rw"));
+  assert.ok(args.includes("--publish=127.0.0.1::3109"));
+  assert.ok(
+    args.includes("--volume=/tmp/workspaces/podman-01234567:/workspace:rw"),
+  );
   assert.equal(args.at(-1), "mcp-app-builder-sandbox:local");
 });

@@ -1,0 +1,21 @@
+FROM node:22-bookworm-slim
+
+# 镜像提供 09 构建 MCP App 所需的 Node 运行环境和预装依赖。项目源码通过
+# 独立工作区挂载，API Key 不进入镜像，也不应传给生成代码。Python 代码执行
+# 应使用单独的受控镜像和 run_python 接口，不能复用通用 Agent exec。
+ARG HTTP_PROXY=""
+ARG HTTPS_PROXY=""
+
+COPY apps/mcp-use-server/package.json /opt/mcp-template/package.json
+
+# 依赖只在构建镜像时下载一次。代理仅作用于这一条 RUN，不写入最终镜像环境。
+RUN cd /opt/mcp-template \
+    && env \
+       http_proxy="$HTTP_PROXY" https_proxy="$HTTPS_PROXY" \
+       HTTP_PROXY="$HTTP_PROXY" HTTPS_PROXY="$HTTPS_PROXY" \
+       npm install --no-audit --no-fund --legacy-peer-deps
+
+WORKDIR /workspace
+
+# Provider 使用 podman exec 启动安装和开发命令；常驻进程仅维持容器生命周期。
+CMD ["sleep", "infinity"]

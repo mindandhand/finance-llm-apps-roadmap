@@ -10,7 +10,8 @@ import { RegisterMcpTestPromptsAction } from "./McpTestPromptsAction";
 //
 // 注册仅在前端运行的 CopilotKit Action，用于更新 React/UI 状态。
 // E2B 创建、文件 I/O 和命令执行等异步重任务均由
-// app/api/copilotkit/route.ts 中 BuiltInAgent 的后端工具完成。
+// app/api/mastra-agent/route.ts 中的 Mastra Agent 后端工具完成。
+// app/api/copilotkit/route.ts 是保留的旧实现，不是当前页面的默认链路。
 // ---------------------------------------------------------------------------
 
 interface BuilderAgentProviderProps {
@@ -35,7 +36,8 @@ export function BuilderAgentProvider({
   children,
 }: BuilderAgentProviderProps) {
   // ── 可读上下文 ──────────────────────────────────────────────────────────
-  // 作为大语言模型的实时上下文注入每个 Agent 请求
+  // 作为大语言模型的实时上下文注入每个 Agent 请求。这里只传递完成决策所需的
+  // 摘要，不把完整 HTML 或全部文件内容塞入上下文，避免无意义地占用模型窗口。
 
   useCopilotReadable({
     description:
@@ -43,7 +45,7 @@ export function BuilderAgentProvider({
     value: activeWorkspace ?? {
       status: "not-provisioned",
       message:
-        "调用后端工具 provision_workspace(name) 创建 E2B 沙箱。",
+        "调用后端工具 provision_workspace(name) 创建配置的工作区沙箱。",
     },
   });
 
@@ -76,7 +78,8 @@ export function BuilderAgentProvider({
   });
 
   // ── UI 状态前端 Action ───────────────────────────────────────────────────
-  // 这些 Action 只更新 React 状态，不执行异步 I/O；Agent 在后端工具完成后调用
+  // 这些 Action 只更新 React 状态，不执行 E2B I/O。典型顺序是：后端创建或
+  // 重启 Server → Agent 调用前端 Action → 页面连接 Endpoint 并刷新工具列表。
 
   useCopilotAction({
     name: "add_mcp_server",
@@ -99,6 +102,7 @@ export function BuilderAgentProvider({
       },
     ],
     handler: async ({ endpoint, serverId }) => {
+      // 幂等判断可防止模型重试同一 Action 时重复添加侧边栏条目。
       if (connectedServers.includes(endpoint as string)) {
         return `Server“${endpoint}”已连接。`;
       }
@@ -137,6 +141,8 @@ export function BuilderAgentProvider({
       },
     ],
     handler: async ({ workspaceId, endpoint }) => {
+      // 工作区信息同时写入 React 状态和 localStorage：前者驱动当前页面，后者
+      // 用于刷新后的重连。这里只保存标识与 Endpoint，不保存 E2B 凭证。
       onWorkspaceChange({
         workspaceId: workspaceId as string,
         endpoint: endpoint as string,

@@ -8,7 +8,7 @@ import { z } from "zod";
 import { NextRequest } from "next/server";
 import { MCPAppsMiddleware, getServerHash } from "@ag-ui/mcp-apps-middleware";
 import { map } from "rxjs/operators";
-import { E2BWorkspaceProvider } from "@/lib/workspace/e2b";
+import { getProvider } from "@/lib/workspace";
 import { getDefaultMcpServers, type McpServerConfig } from "@/lib/mcp-defaults";
 
 // Allow up to 5 minutes for long agent loops
@@ -125,9 +125,9 @@ class MCPAppsMiddlewareFixBase extends MCPAppsMiddleware {
   }
 }
 
-// ── E2B workspace provider (stateless — safe to reuse across requests) ──────
+// ── Workspace provider selected from Podman or E2B configuration ────────────
 
-const workspaceProvider = new E2BWorkspaceProvider();
+const workspaceProvider = getProvider();
 
 // ── Backend tools — run server-side inside the agent loop ────────────────────
 
@@ -135,8 +135,7 @@ const workspaceTools = [
   defineTool({
     name: "provision_workspace",
     description:
-      "Create an E2B sandbox from the pre-built mcp-use-server template. " +
-      "With a template this takes ~3 s (deps + server are baked in). " +
+      "Create an isolated workspace from the pre-built mcp-use-server template. " +
       "Returns workspaceId and endpoint. " +
       "After success, ALWAYS call add_mcp_server(endpoint, serverId) " +
       "and set_active_workspace(workspaceId, endpoint) so the UI updates.",
@@ -162,7 +161,7 @@ const workspaceTools = [
   defineTool({
     name: "read_file",
     description:
-      "Read a file from the active E2B workspace. Path is relative to workspace root " +
+      "Read a file from the active workspace. Path is relative to workspace root " +
       "(/home/user/workspace). Use this to inspect existing code before editing.",
     parameters: z.object({
       workspaceId: z
@@ -180,7 +179,7 @@ const workspaceTools = [
   defineTool({
     name: "write_file",
     description:
-      "Write (create or overwrite) a file in the active E2B workspace. " +
+      "Write (create or overwrite) a file in the active workspace. " +
       "Parent directories are created automatically. Path is relative to workspace root.",
     parameters: z.object({
       workspaceId: z.string().describe("Sandbox ID"),
@@ -218,7 +217,7 @@ const workspaceTools = [
   defineTool({
     name: "exec",
     description:
-      "Run a shell command in the workspace root of the active E2B sandbox. " +
+      "Run a shell command in the active workspace root. " +
       "Use background=true for long-running processes (e.g. starting the dev server). " +
       "Rebuild sequence after edits: " +
       "1) exec(\"ss -tlnp 'sport = :3109' | grep -oP 'pid=\\\\K[0-9]+' | head -1 | xargs -r kill; sleep 1\") " +
@@ -255,7 +254,7 @@ const workspaceTools = [
 
   defineTool({
     name: "get_workspace_info",
-    description: "Get current status and endpoint of the active E2B sandbox.",
+    description: "Get current status and endpoint of the active workspace sandbox.",
     parameters: z.object({
       workspaceId: z.string().describe("Sandbox ID"),
     }),
@@ -283,7 +282,7 @@ const workspaceTools = [
 
 // ── System prompt ─────────────────────────────────────────────────────────────
 
-const AGENT_SYSTEM_PROMPT = `You are the MCP UI Studio coding agent. You can USE existing MCP tools and BUILD new ones in live E2B sandboxes.
+const AGENT_SYSTEM_PROMPT = `You are the MCP UI Studio coding agent. You can USE existing MCP tools and BUILD new ones in isolated workspace sandboxes.
 
 CRITICAL — DO NOT STOP AFTER A TOOL CALL:
 After every tool result you MUST continue in the same run. Either:
@@ -300,8 +299,8 @@ COMMUNICATION — follow these rules on every turn:
 ═══════════════════════════════════════════════════════════════
 TEMPLATE KNOWLEDGE — mcp-use-server
 ═══════════════════════════════════════════════════════════════
-The E2B sandbox runs a pre-built mcp-use-server template.
-Deps and build artifacts are baked in — provisioning takes ~3 s.
+The workspace sandbox runs a pre-built mcp-use-server template.
+Dependencies and build artifacts are prepared by the selected Provider.
 The dev server starts automatically on port 3109.
 
 Key files in the workspace (/home/user/workspace):
@@ -552,7 +551,7 @@ User: "Build a crypto price widget"
 ═══════════════════════════════════════════════════════════════
 AVAILABLE TOOLS
 ═══════════════════════════════════════════════════════════════
-BACKEND (run inside the E2B sandbox):
+BACKEND (run inside the selected workspace sandbox):
   provision_workspace  — create a new sandbox (~3 s with template)
   read_file            — read any file in the workspace
   write_file           — create or overwrite a file
