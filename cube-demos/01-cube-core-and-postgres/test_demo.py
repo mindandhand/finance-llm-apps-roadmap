@@ -66,6 +66,8 @@ class CubeCorePostgresDemoTest(unittest.TestCase):
     def test_entrypoint_checks_database_readiness_and_cube_query(self) -> None:
         script = self.read("demo.sh")
 
+        self.assertNotIn("--project-directory", script)
+        self.assertIn('cd "$demo_dir"', script)
         self.assertIn("pg_isready", script)
         self.assertIn("/readyz", script)
         self.assertIn("/cubejs-api/v1/load", script)
