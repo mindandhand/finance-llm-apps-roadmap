@@ -4,7 +4,7 @@
 
 构建只负责交互与展示的 Streamlit 页面，理解筛选器、Cube Query、结果转换和图表之间的边界。
 
-> 本章尚未实现 Streamlit 应用。
+本章提供 `dashboard.py` 查询逻辑和 `app.py` Streamlit 页面。查询构造、结果转换可脱离 UI 单测。
 
 ## 页面架构
 
@@ -39,6 +39,28 @@ Streamlit 不连接源数据库，不知道持仓市值公式，也不自行拼 
 ## 验证
 
 用 API 自动化测试验证数据，用少量 UI smoke test 验证控件到查询的映射。核心指标不应依赖截图或肉眼判断。
+
+## 底层如何处理
+
+组合选择器只改变 `portfolio_holdings.portfolio_name` Filter；`build_query` 生成固定允许成员组成的查询，Cube 完成 Join 和 `SUM(market_value)`。`normalize_rows` 只把 API 字段改成展示字段，并用 `Decimal` 保留金额精度，不重新计算业务指标。页面根据 HTTP 和数据结果区分 success、empty 与 error。
+
+```text
+Streamlit 控件 → build_query → Cube REST → 语义层聚合 → normalize_rows → 指标卡/表格/图表
+```
+
+## 运行与验证
+
+```bash
+cd cube-demos/10-streamlit-dashboard
+./demo.sh
+python3 -m unittest test_demo.py -v
+
+# 可选启动页面
+python3 -m pip install -r requirements.txt
+./demo.sh ui
+```
+
+命令行 smoke test 断言页面将消费的市值合计仍为 `200030`，因此 UI 显示不能成为指标正确性的唯一证据。
 
 ## 常见误区
 

@@ -1,0 +1,42 @@
+cubes:
+  - name: transactions
+    title: 交易计算指标
+    description: 从可加基础指标推导加权平均成交价。
+    sql_table: public.transactions
+
+    dimensions:
+      - name: id
+        sql: id
+        type: number
+        primary_key: true
+
+      - name: side
+        title: 交易方向
+        sql: side
+        type: string
+
+      - name: traded_at
+        title: 交易时间
+        sql: traded_at
+        type: time
+
+    measures:
+      - name: count
+        title: 交易笔数
+        type: count
+
+      - name: total_quantity
+        title: 成交数量
+        sql: quantity
+        type: sum
+
+      - name: total_amount
+        title: 成交金额
+        sql: "quantity * price"
+        type: sum
+
+      - name: weighted_average_price
+        title: 加权平均成交价
+        description: 成交金额除以成交数量；没有成交数量时返回 NULL。
+        sql: "{total_amount} / NULLIF({total_quantity}, 0)"
+        type: number

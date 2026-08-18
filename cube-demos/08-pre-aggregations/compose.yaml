@@ -1,0 +1,4 @@
+services:
+  cube:
+    environment:
+      CUBEJS_CUBESTORE_HOST: cubestore

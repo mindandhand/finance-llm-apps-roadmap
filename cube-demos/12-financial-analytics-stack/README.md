@@ -4,7 +4,7 @@
 
 把前 11 章收口成一个可启动、可测试、可观察的金融分析栈，并明确教学架构与生产系统之间仍存在的距离。
 
-> 本章尚未实现完整栈。它只组合已经逐章验证的能力，不在最后一章突然引入新框架。
+本章提供统一 `demo.sh`，只组合已经逐章验证的能力，不在最后一章突然引入新框架。默认执行确定性核心链路；设置 `FULL_STACK=1` 时再加入需要额外 Python 依赖和 Cube Store 镜像的 07、08。
 
 ## 完整架构
 
@@ -24,6 +24,28 @@ graph TD
 ## 一条命令启动不等于一个进程
 
 统一入口负责检查环境、启动服务、等待健康、初始化 fixture，并运行 smoke test。数据库、Cube API、预聚合存储和应用仍保持职责分离。脚本不能用长时间固定 sleep 猜服务是否启动，而应轮询有超时的健康条件。
+
+## 底层如何处理
+
+统一脚本不是把所有代码合成一个进程，而是依次切换并验证明确边界：04 证明 Join/View 指标正确，06 证明 REST 客户端契约，09 证明 JWT 租户隔离，10 证明 UI 查询映射，11 证明 AI 白名单。每层失败都会保留自己的章节输出，因此可以定位是模型、API、权限还是应用问题。
+
+```text
+PostgreSQL → Cube 模型/View → REST/SQL → 权限/缓存 → Dashboard/LLM
+     数据       指标口径        接口       治理          消费者
+```
+
+## 运行与验证
+
+```bash
+cd cube-demos/12-financial-analytics-stack
+./demo.sh
+
+# 包含 Pandas SQL API 和 Cube Store 预聚合
+FULL_STACK=1 ./demo.sh
+python3 -m unittest test_demo.py -v
+```
+
+默认路径不需要 Streamlit 或真实 LLM 服务；它验证页面和 Agent 依赖的确定性核心。完整路径需要先安装 07 的 Python 依赖，并允许首次下载 Cube Store 镜像。
 
 ## 端到端验收路径
 

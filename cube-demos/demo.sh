@@ -12,6 +12,11 @@ set -a
 source "$env_file"
 set +a
 
+: "${CUBE_SQL_PORT:=15432}"
+: "${CUBE_SQL_USER:=cube}"
+: "${CUBE_SQL_PASSWORD:=cube_sql_password}"
+export CUBE_SQL_PORT CUBE_SQL_USER CUBE_SQL_PASSWORD
+
 if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
     compose=(docker compose)
 elif command -v podman >/dev/null 2>&1 && podman compose version >/dev/null 2>&1; then
@@ -22,7 +27,19 @@ else
 fi
 
 run_compose() {
-    (cd "$demo_dir" && "${compose[@]}" --env-file "$env_file" -f compose.yaml "$@")
+    if [[ -n "${CUBE_COMPOSE_OVERRIDE:-}" && -n "${COMPOSE_PROFILES:-}" ]]; then
+        (cd "$demo_dir" && "${compose[@]}" --env-file "$env_file" \
+            -f compose.yaml -f "$CUBE_COMPOSE_OVERRIDE" \
+            --profile "$COMPOSE_PROFILES" "$@")
+    elif [[ -n "${CUBE_COMPOSE_OVERRIDE:-}" ]]; then
+        (cd "$demo_dir" && "${compose[@]}" --env-file "$env_file" \
+            -f compose.yaml -f "$CUBE_COMPOSE_OVERRIDE" "$@")
+    elif [[ -n "${COMPOSE_PROFILES:-}" ]]; then
+        (cd "$demo_dir" && "${compose[@]}" --env-file "$env_file" -f compose.yaml \
+            --profile "$COMPOSE_PROFILES" "$@")
+    else
+        (cd "$demo_dir" && "${compose[@]}" --env-file "$env_file" -f compose.yaml "$@")
+    fi
 }
 
 wait_for_postgres() {

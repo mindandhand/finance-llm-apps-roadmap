@@ -4,7 +4,7 @@
 
 区分认证与授权，从可信 Token 生成 security context，并用访问策略实施组、成员和行级限制。
 
-> 本章尚未实现认证代码。最终实现会使用测试密钥和本地签发 Token，不提交真实秘密。
+本章使用 `.env` 中的本地教学密钥签发短期 HS256 Token，并通过 `cube.py` 将可信 `securityContext.groups` 映射到访问策略。仓库不提交真实秘密。
 
 ## 认证与授权
 
@@ -45,6 +45,26 @@ sequenceDiagram
 ## 缓存安全
 
 缓存键和预聚合查询必须保持 security context 的隔离语义。不能为了提高命中率而在应用层缓存“所有租户的查询结果”再自行过滤。
+
+## 底层如何处理
+
+客户端只发送签名 Token 和普通语义查询。Cube 先验证 JWT 签名及过期时间，再把声明放入 `securityContext`；`context_to_groups` 返回 `portfolio_user` 后，模型的 row-level policy 自动加入 `tenant_id = 当前租户`。这个条件由服务端生成，用户不能通过删除 Filter 或提交另一个租户 ID 绕过。
+
+```text
+JWT → 验签 → securityContext → group 映射 → row-level policy → WHERE tenant_id = ? → PostgreSQL
+```
+
+本地固定结果：alpha 只能看到 `115155`，beta 只能看到 `84875`，两者之和才是全库的 `200030`。缓存键必须保留安全上下文语义，不能把某个租户的响应直接共享给另一个租户。
+
+## 运行与验证
+
+```bash
+cd cube-demos/09-access-control
+./demo.sh
+python3 -m unittest test_demo.py -v
+```
+
+`demo.sh` 使用标准库生成两个短期 Token，发送完全相同的 Cube Query，并断言结果因服务端租户策略而不同。
 
 ## 常见误区
 

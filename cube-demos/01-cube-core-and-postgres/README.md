@@ -62,14 +62,16 @@ Playground 类似“查询调试器 + API 调试页面”：它可以选择语�
 
 Compose 会复用本机已有的相同镜像缓存，但创建属于 `cube-demos` 学习路径的独立容器、网络和数据卷。第 01、02 章共用这套教学环境，但不直接向其他项目正在运行的 PostgreSQL 写入 fixture，也不复用带有其他模型挂载的 Cube 容器。
 
-## 运行
+## Cube Core 安装与启动
+
+Cube Core 以 Docker 镜像分发，本案例不在宿主机执行 `npm install`。首次运行时，Compose 会拉取固定版本的 `cubejs/cube:v1.7.11`；本机只需提前安装 Docker Compose 或 Podman Compose。
 
 ```bash
 cd cube-demos/01-cube-core-and-postgres
 ./demo.sh
 ```
 
-脚本会自动选择 Docker Compose 或 Podman Compose，复制 `.env.example` 为未提交的 `.env`，启动服务，轮询就绪状态，并通过 Cube REST API 断言 fixture 行数。成功输出类似：
+脚本会自动选择 Docker Compose 或 Podman Compose，复制 `.env.example` 为未提交的 `.env`，拉取镜像并启动 PostgreSQL 和 Cube，挂载 01 模型，轮询就绪状态，最后通过 Cube REST API 断言 fixture 行数。成功输出类似：
 
 ```text
 fixture rows: {'daily_prices': 8, 'portfolios': 3, 'positions': 6, 'securities': 4, 'transactions': 8, 'users': 3}
@@ -124,7 +126,36 @@ Playground 在背后发送的 Cube Query（Cube 语义查询）等价于：
 
 ## 如何验证
 
-`demo.sh` 验证四层：
+可以分三步判断服务和数据连接状态。以下命令使用 Podman；Docker 用户将 `podman` 替换为 `docker`。
+
+1. 验证 PostgreSQL 自身可用：
+
+   ```bash
+   cd cube-demos
+   podman compose --env-file .env -f compose.yaml exec -T postgres \
+     pg_isready -U cube -d finance
+   ```
+
+   输出 `accepting connections` 只说明 PostgreSQL 已就绪。
+
+2. 验证 Cube Core 自身可用：
+
+   ```bash
+   curl http://127.0.0.1:4000/readyz
+   ```
+
+   返回成功响应说明 Cube HTTP 服务已就绪。仅能打开 4000 端口或 Playground，还不能单独证明 Cube 已成功查询 PostgreSQL。
+
+3. 验证 Cube 到 PostgreSQL 的完整链路：
+
+   ```bash
+   cd cube-demos/01-cube-core-and-postgres
+   ./demo.sh
+   ```
+
+   出现 `fixture rows: ...` 和 `Cube and PostgreSQL are ready.`，说明请求已经经过“客户端 → Cube 数据模型 → PostgreSQL → Cube 返回结果”，这是连接成功最直接的证明。已启动 01 模型时，也可以运行 `./demo.sh verify` 重新验证；失败时运行 `./demo.sh logs` 查看日志。
+
+`demo.sh` 最终自动验证四项：
 
 1. PostgreSQL 容器健康。
 2. Cube readiness probe（就绪检查）`/readyz` 返回成功。

@@ -1,0 +1,113 @@
+cubes:
+  - name: positions
+    title: 持仓
+    description: 每行代表某个投资组合在某日持有的一只证券。
+    sql_table: public.positions
+
+    joins:
+      - name: portfolios
+        sql: "{CUBE}.portfolio_id = {portfolios.id}"
+        relationship: many_to_one
+
+      - name: securities
+        sql: "{CUBE}.security_id = {securities.id}"
+        relationship: many_to_one
+
+    dimensions:
+      - name: id
+        title: 持仓唯一键
+        sql: "CONCAT({CUBE}.portfolio_id, '-', {CUBE}.security_id, '-', {CUBE}.position_date)"
+        type: string
+        primary_key: true
+
+      - name: position_date
+        title: 持仓日期
+        sql: position_date
+        type: time
+
+    measures:
+      - name: count
+        title: 持仓条目数
+        type: count
+
+      - name: total_quantity
+        title: 持仓数量
+        sql: quantity
+        type: sum
+
+      - name: total_market_value
+        title: 持仓市值
+        description: 数据源按持仓日提供的市值之和，单位为人民币元。
+        sql: market_value
+        type: sum
+
+  - name: portfolios
+    title: 投资组合
+    sql_table: public.portfolios
+
+    dimensions:
+      - name: id
+        sql: id
+        type: number
+        primary_key: true
+
+      - name: tenant_id
+        title: 租户
+        sql: tenant_id
+        type: string
+
+      - name: name
+        title: 组合名称
+        sql: name
+        type: string
+
+  - name: securities
+    title: 证券
+    sql_table: public.securities
+
+    dimensions:
+      - name: id
+        sql: id
+        type: number
+        primary_key: true
+
+      - name: symbol
+        title: 证券代码
+        sql: symbol
+        type: string
+
+      - name: name
+        title: 证券名称
+        sql: name
+        type: string
+
+      - name: asset_class
+        title: 资产类别
+        sql: asset_class
+        type: string
+
+views:
+  - name: portfolio_holdings
+    title: 组合持仓分析
+    description: 按明确 Join 路径发布组合、证券和持仓指标。
+
+    cubes:
+      - join_path: positions
+        includes:
+          - position_date
+          - count
+          - total_quantity
+          - total_market_value
+
+      - join_path: positions.portfolios
+        includes:
+          - name: name
+            alias: portfolio_name
+          - tenant_id
+
+      - join_path: positions.securities
+        includes:
+          - symbol
+          - name: name
+            alias: security_name
+          - asset_class

@@ -1,0 +1,63 @@
+cubes:
+  - name: portfolio_holdings
+    title: 受保护的组合持仓
+    description: 已关联组合和证券的租户隔离持仓数据。
+    sql: |
+      SELECT
+        CONCAT(p.portfolio_id, '-', p.security_id, '-', p.position_date) AS id,
+        pf.tenant_id,
+        pf.name AS portfolio_name,
+        s.symbol,
+        s.asset_class,
+        p.position_date,
+        p.quantity,
+        p.market_value
+      FROM public.positions p
+      JOIN public.portfolios pf ON p.portfolio_id = pf.id
+      JOIN public.securities s ON p.security_id = s.id
+
+    dimensions:
+      - name: id
+        sql: id
+        type: string
+        primary_key: true
+
+      - name: tenant_id
+        title: 租户
+        sql: tenant_id
+        type: string
+
+      - name: portfolio_name
+        title: 组合名称
+        sql: portfolio_name
+        type: string
+
+      - name: symbol
+        title: 证券代码
+        sql: symbol
+        type: string
+
+      - name: asset_class
+        title: 资产类别
+        sql: asset_class
+        type: string
+
+      - name: position_date
+        title: 持仓日期
+        sql: position_date
+        type: time
+
+    measures:
+      - name: total_market_value
+        title: 持仓市值
+        sql: market_value
+        type: sum
+
+    access_policy:
+      - group: portfolio_user
+        row_level:
+          filters:
+            - member: tenant_id
+              operator: equals
+              values:
+                - "{ securityContext.tenant_id }"

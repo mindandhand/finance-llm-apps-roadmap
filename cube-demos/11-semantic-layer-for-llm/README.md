@@ -4,7 +4,7 @@
 
 理解语义层如何缩小 LLM 的决策空间，让模型基于公开元数据生成受约束 Cube Query，并解释由 Cube 确定性计算的结果。
 
-> 本章尚未实现模型调用。基础路径将支持 fake/rule model 做离线测试，真实 LLM 作为可选运行方式。
+本章提供确定性的 `fake_model`，用于离线验证“自然语言意图 → 结构化查询 → 白名单校验 → Cube 执行”边界。接入真实 LLM 时仍必须复用相同校验器。
 
 ## 为什么不让 LLM 直接写底层 SQL
 
@@ -47,6 +47,25 @@ graph TD
 ## 测试方法
 
 使用固定自然语言问题和 fake model 输出测试解析与校验；加入不存在成员、越权成员、超大 limit、非法过滤器和 prompt injection。数值答案与直接 Cube Query 比较，不能用 LLM 自己判断答案是否正确。
+
+## 底层如何处理
+
+模型只产生候选 JSON，不拥有执行权限。确定性代码检查 Measure、Dimension、Granularity 和 limit 是否来自允许集合，通过后才发送到 Cube；Cube 再执行模型校验、访问策略和 SQL。最终数字只来自 Cube 响应，LLM 可以解释但不能修改。涉及“收益最好”等口径不完整的问题，fake model 会要求澄清。
+
+```text
+自然语言 → 候选 JSON → validate_query → Cube → 确定性数字 → 自然语言解释
+                         ↘ 不合法：拒绝，不访问数据库
+```
+
+## 运行与验证
+
+```bash
+cd cube-demos/11-semantic-layer-for-llm
+./demo.sh
+python3 -m unittest test_demo.py -v
+```
+
+示例问题是“按交易方向统计成交金额”，允许的查询返回 BUY `203650`、SELL `5700`；不存在成员、超大 limit 和含糊收益问题由离线测试覆盖。
 
 ## 常见误区
 

@@ -4,7 +4,7 @@
 
 理解结果缓存与预聚合的区别，为高频时间序列定义 rollup、刷新策略，并用执行证据验证匹配结果。
 
-> 本章尚未实现 Cube Store 和 rollup 配置。
+本章提供按需启动的 Cube Store 和 `daily_transactions` rollup。前面章节默认不启动 Cube Store；本章脚本通过 Compose profile 启用它。
 
 ## 两层缓存
 
@@ -40,6 +40,26 @@ graph TD
 5. 修改 fixture 和 refresh key，验证新旧数据切换。
 
 正确性断言必须先于性能断言：源查询与 rollup 查询结果逐项一致，才能比较耗时。
+
+## 底层如何处理
+
+Cube 收到查询后先规范化成员、过滤器、时区和时间粒度，再由 aggregate awareness 检查 rollup 是否包含全部基础 Measure、Dimension 和过滤字段。匹配后，查询编排器检查 `refresh_key` 对应版本是否已经构建；需要时从 PostgreSQL 读取并按日汇总写入 Cube Store，随后针对更小的汇总表生成 SQL。查询结果缓存位于更外层，命中时甚至不会再次查询 rollup。
+
+```text
+语义查询 → 结果缓存 → rollup 匹配 → 检查/构建版本 → Cube Store 查询 → 缓存结果 → JSON
+```
+
+本例的 rollup 包含交易笔数、成交数量、成交金额、交易方向和日粒度时间。增加未覆盖的 Dimension 时不能使用它，Cube 会回退到 PostgreSQL；这正是“预聚合不改变查询接口”的含义。
+
+## 运行与验证
+
+```bash
+cd cube-demos/08-pre-aggregations
+./demo.sh
+python3 -m unittest test_demo.py -v
+```
+
+脚本先断言结果总额仍为 `209350`，再调用 SQL inspection API，要求生成 SQL 明确引用 `daily_transactions`。这比只比较第一次和第二次耗时更可靠。
 
 ## 常见误区
 
