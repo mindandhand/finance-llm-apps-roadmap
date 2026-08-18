@@ -6,6 +6,8 @@
 
 运行本章后，应能通过 Cube REST API 查询交易笔数、成交数量和成交金额，并解释为什么无效成员会在到达 PostgreSQL 之前被拒绝。
 
+一句话理解：第 01 章解决“Cube 能否连接数据库”，第 02 章解决“数据库字段在业务上叫什么、怎样统一计算”。
+
 ## 复用公共环境
 
 本章不再复制 PostgreSQL、`.env.example`、Compose 或 fixture。它们位于 `cube-demos` 根目录：
@@ -33,6 +35,7 @@ cube-demos/
 ```yaml
 cubes:
   - name: transactions
+    title: 交易
     sql_table: public.transactions
 
     dimensions:
@@ -42,27 +45,50 @@ cubes:
         primary_key: true
 
       - name: side
+        title: 交易方向
         sql: side
         type: string
 
       - name: traded_at
+        title: 交易时间
         sql: traded_at
         type: time
 
     measures:
       - name: count
+        title: 交易笔数
         type: count
 
       - name: total_quantity
+        title: 成交数量
         sql: quantity
         type: sum
 
       - name: total_amount
+        title: 成交金额
         sql: "quantity * price"
         type: sum
 ```
 
 完整模型还公开 `tenant_id`、`portfolio_id` 和 `security_id` 维度，为后续过滤与 Join（关联）章节保留业务标识。
+
+## 中文业务语义在哪里完成
+
+中文名称和计算规则都定义在 `model/transactions.yml`，但各配置项职责不同：
+
+| 中文含义 | `name`（API 成员名） | `title`（Playground 显示名） | `sql` / `type`（数据库映射或计算） |
+|---|---|---|---|
+| 交易方向 | `side` | `交易方向` | 读取 `side`，类型为字符串 |
+| 证券标识 | `security_id` | `证券标识` | 读取 `security_id`，类型为数字 |
+| 交易笔数 | `count` | `交易笔数` | `type: count`，生成 `COUNT(*)` |
+| 成交数量 | `total_quantity` | `成交数量` | `SUM(quantity)` |
+| 成交金额 | `total_amount` | `成交金额` | `SUM(quantity * price)` |
+
+- `name` 是稳定的技术标识，因此 REST API 仍查询 `transactions.total_amount`，不会使用中文名称。
+- `title` 和 `description` 面向阅读者，Playground 会用它们解释成员的中文含义和指标口径。
+- `sql` 指定原始字段或公式，`type` 告诉 Cube 如何分组或聚合。
+- `buy`、`sell` 是数据库中的原始值，本章只给字段添加中文标题，不修改数据值。
+- `security_id` 只是内部证券标识；需要关联证券表后，才能取得股票代码等真正的证券代码。
 
 ## Dimension 与 Measure
 

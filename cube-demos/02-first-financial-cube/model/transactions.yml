@@ -1,46 +1,61 @@
 cubes:
   - name: transactions
-    title: Transactions
-    description: Fixed tutorial trades with reusable quantity and amount metrics.
+    title: 交易
+    description: 交易事实数据及统一的成交数量、成交金额指标。
     sql_table: public.transactions
 
     dimensions:
       - name: id
+        title: 交易编号
+        description: 每笔交易的唯一标识。
         sql: id
         type: number
         primary_key: true
 
       - name: tenant_id
+        title: 租户编号
+        description: 交易所属租户的标识。
         sql: tenant_id
         type: string
 
       - name: portfolio_id
+        title: 投资组合编号
+        description: 交易所属投资组合的标识。
         sql: portfolio_id
         type: number
 
       - name: security_id
+        title: 证券标识
+        description: 关联证券资料的内部标识，不是证券代码。
         sql: security_id
         type: number
 
       - name: side
+        title: 交易方向
+        description: 买入 buy 或卖出 sell。
         sql: side
         type: string
 
       - name: traded_at
+        title: 交易时间
+        description: 交易发生的时间。
         sql: traded_at
         type: time
 
     measures:
       - name: count
-        description: Number of transaction rows.
+        title: 交易笔数
+        description: 交易记录的行数。
         type: count
 
       - name: total_quantity
-        description: Sum of traded units without applying buy or sell signs.
+        title: 成交数量
+        description: 成交数量之和，买入和卖出均按正数累计。
         sql: quantity
         type: sum
 
       - name: total_amount
-        description: Gross traded amount before fees, calculated as quantity times price.
+        title: 成交金额
+        description: 手续费前的成交总额，计算公式为数量乘以价格。
         sql: "quantity * price"
         type: sum
