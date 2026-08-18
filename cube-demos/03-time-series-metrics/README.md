@@ -6,6 +6,8 @@
 
 本章直接复用第 02 章的 `transactions` 模型和根目录公共环境，不复制模型、Compose、`.env` 或数据库 fixture。
 
+一句话理解：第 02 章定义指标“是什么”，第 03 章学习这些指标“按什么时间范围和粒度汇总”。02 模型中的中文 `title` 和 `description` 也会直接显示在本章 Playground 中；REST API 仍使用 `transactions.count` 等英文成员名。
+
 ## 时间维度不是普通字符串
 
 第 02 章已将 `traded_at` 声明为：
@@ -22,6 +24,30 @@
 - `dateRange` 决定哪些原始交易进入计算；
 - `timezone: UTC` 决定日期边界按哪个时区解释；
 - `filters` 在聚合前限制原始数据。
+
+## Cube 如何完成时间聚合
+
+以“按日统计”为例，请求和数据库之间依次发生：
+
+1. 客户端选择时间成员 `transactions.traded_at`、粒度 `day` 和所需 Measure。
+2. Cube 根据第 02 章定义的 `type: time`、`type: count` 和 `type: sum` 校验请求。
+3. Cube 生成并执行类似下面的 PostgreSQL SQL；实际 SQL 还会包含别名和时区处理。
+4. PostgreSQL 聚合后只返回每日结果，Cube 再把它转换成 REST API 响应。
+
+```sql
+SELECT
+    DATE_TRUNC('day', traded_at) AS traded_day,
+    COUNT(*) AS trade_count,
+    SUM(quantity) AS total_quantity,
+    SUM(quantity * price) AS total_amount
+FROM public.transactions
+WHERE traded_at >= TIMESTAMP '2025-01-02 00:00:00'
+  AND traded_at <  TIMESTAMP '2025-01-04 00:00:00'
+GROUP BY DATE_TRUNC('day', traded_at)
+ORDER BY traded_day;
+```
+
+`DATE_TRUNC('day', traded_at)` 是 PostgreSQL 时间函数：它把同一天的不同时间截到当天 `00:00:00`。例如 `02:00`、`02:10`、`02:30` 会得到同一个日期桶；`GROUP BY` 再把桶内的行交给 `COUNT` 和 `SUM` 汇总。改成 `'month'`，同一个月的记录就会进入同一个月桶。
 
 ## 按日查询
 
@@ -134,6 +160,8 @@ Chapter 03 passed.
 5. 确认 Timezone 为 `UTC`，点击 Run Query。
 
 结果应与“按日查询”表格一致。随后把粒度改为 `month`，结果应合并为一个 2025-01 月桶。
+
+如果结果仍显示 `2025-01-02 02:00:00`、`02:10:00` 等每笔原始时间明细，说明查询选择了普通 `traded_at` Dimension，或没有设置 Granularity。应将它放入 Time Dimension，明确选择 `day`；正确结果只会保留 `2025-01-02`、`2025-01-03` 两个日期桶。
 
 ## 自动化测试
 
