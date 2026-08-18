@@ -25,6 +25,30 @@
 - `timezone: UTC` 决定日期边界按哪个时区解释；
 - `filters` 在聚合前限制原始数据。
 
+## Cube 底层处理链路
+
+Cube Core 不是保存交易明细的数据库，也不会在应用进程中逐行求和。它的核心职责是“理解统一的业务定义、生成正确 SQL、编排查询”；本章的数据扫描和聚合最终由 PostgreSQL 负责实际计算。
+
+```mermaid
+flowchart LR
+    A[REST 语义查询] --> B[API 校验]
+    B --> C[语义模型编译器]
+    C --> D[查询计划与 SQL]
+    D --> E[查询编排器]
+    E -->|本章缓存未命中| F[PostgreSQL]
+    F --> G[结果映射]
+    G --> H[JSON 响应]
+```
+
+1. **API 校验**：检查 `transactions.total_amount` 等成员是否存在、时间粒度是否合法，并在访问数据库前应用安全上下文和访问策略。不存在的成员会直接返回 HTTP 400。
+2. **模型编译**：语义模型编译器读取 02 的 YAML，把 `total_amount` 展开为 `SUM(quantity * price)`，把 `count` 展开为 `COUNT(*)`；客户端不能临时改写指标口径。
+3. **查询计划**：Cube 把 Date Range 和普通维度 Filter 变成原始数据过滤，把 Timezone 用于解释日期边界和时间桶，再按照 PostgreSQL 方言生成 SQL。维度过滤通常进入 `WHERE`，Measure 过滤则作用于聚合结果，语义上类似 `HAVING`。
+4. **查询编排**：查询编排器负责缓存键、刷新状态、并发队列和预聚合匹配。如果内存缓存有效，Cube 可以直接返回；否则继续执行查询。
+5. **选择数据来源**：配置预聚合后，Cube 会优先选择能覆盖当前 Measure、Dimension、Filter 和 Granularity 的汇总表。当前 03 没有配置预聚合或 Cube Store，所以缓存未命中时直接查询 PostgreSQL 原始表。
+6. **结果映射**：数据库返回带 SQL 别名的行后，Cube 将其映射回 `transactions.traded_at.day`、`transactions.total_amount` 等语义成员名，再序列化为 REST JSON。
+
+因此，本章可以简单理解为：**模型决定算什么，Cube 决定怎样安全地查，PostgreSQL 执行真正的过滤、分组和聚合。**
+
 ## Cube 如何完成时间聚合
 
 以“按日统计”为例，请求和数据库之间依次发生：
@@ -191,3 +215,10 @@ python3 -m unittest test_demo.py -v
 ## 下一步
 
 第 04 章加入组合、持仓和证券实体，学习多表 Join 对指标正确性的影响。
+
+## 参考资料
+
+- [Cube REST Query Format](https://docs.cube.dev/reference/core-data-apis/rest-api/query-format)
+- [Cube Data Model Syntax](https://docs.cube.dev/docs/data-modeling/concepts/syntax)
+- [Cube 缓存与查询检查](https://docs.cube.dev/docs/pre-aggregations/index)
+- [Cube 预聚合匹配机制](https://docs.cube.dev/docs/pre-aggregations/matching-pre-aggregations)
