@@ -2,27 +2,49 @@
 
 ## 学习目标
 
-用 YAML 把 `transactions` 表变成可查询的语义模型，理解 Cube、dimension、measure、primary key 和生成 SQL 的关系。
+用 YAML 把 `transactions` 表变成可查询的语义模型，理解 Cube、Dimension（维度）、Measure（度量）、Primary Key（主键）和生成 SQL 的关系。
 
-> 本章尚未实现代码，示例展示计划采用的模型形态。
+运行本章后，应能通过 Cube REST API 查询交易笔数、成交数量和成交金额，并解释为什么无效成员会在到达 PostgreSQL 之前被拒绝。
+
+## 复用公共环境
+
+本章不再复制 PostgreSQL、`.env.example`、Compose 或 fixture。它们位于 `cube-demos` 根目录：
+
+```text
+cube-demos/
+├── .env.example
+├── compose.yaml
+├── demo.sh
+├── data/
+└── 02-first-financial-cube/
+    ├── README.md
+    ├── demo.sh
+    ├── model/
+    │   └── transactions.yml
+    └── test_demo.py
+```
+
+章节脚本设置 `CUBE_MODEL_DIR=./02-first-financial-cube/model`，公共 Compose 据此挂载本章模型。第 01、02 章共用一个 PostgreSQL、数据卷、网络和 `4000` 端口；运行某章时，Cube 会切换为该章模型。
 
 ## 从表到语义模型
 
-原始表告诉数据库有哪些列，却没有告诉消费者哪一列能分组、哪一列应求和、成交金额采用什么公式。Cube 把这些业务语义声明为成员：
+原始表只描述列和约束，没有说明哪些字段用于分组、哪些表达式代表业务指标。`model/transactions.yml` 把这些语义声明为可查询成员：
 
 ```yaml
 cubes:
   - name: transactions
-    sql_table: transactions
+    sql_table: public.transactions
 
     dimensions:
       - name: id
         sql: id
         type: number
         primary_key: true
+
       - name: side
         sql: side
         type: string
+
       - name: traded_at
         sql: traded_at
         type: time
@@ -30,71 +52,142 @@ cubes:
     measures:
       - name: count
         type: count
+
       - name: total_quantity
         sql: quantity
         type: sum
+
       - name: total_amount
-        sql: quantity * price
+        sql: "quantity * price"
         type: sum
 ```
 
-实际实现会按固定的 Cube 版本验证语法，不能仅凭示意配置运行。
+完整模型还公开 `tenant_id`、`portfolio_id` 和 `security_id` 维度，为后续过滤与 Join（关联）章节保留业务标识。
 
-## Dimension 与 Measure 的区别
+## Dimension 与 Measure
 
-`side` 是 dimension，因为可以按 BUY/SELL 分组；`traded_at` 是时间 dimension，因为可以按日期范围筛选；`total_amount` 是 measure，因为它跨多笔交易求和。
+- `side` 是 Dimension，因为消费者可以按 `buy`、`sell` 分组。
+- `traded_at` 是 Time Dimension（时间维度），后续可按日期范围过滤和按日、月聚合。
+- `count` 是 Measure，表示交易表行数。
+- `total_quantity` 是 Measure，Cube 会把 `quantity` 包装为 `SUM(quantity)`。
+- `total_amount` 是 Measure，Cube 会把表达式包装为 `SUM(quantity * price)`。
 
-判断方法不是“字符串就是 dimension、数字就是 measure”。证券 ID 是数字但仍是标识维度；成交金额也是数字，却具有聚合语义。
+`total_amount` 表示手续费前的成交总额，不根据买卖方向添加正负号，也不扣除 `fee`。这个口径写在模型中，客户端不能自行重新定义。
 
-## Primary key 为什么重要
+## Primary Key 为什么重要
 
-主键声明告诉 Cube 一行事实如何唯一识别。单表查询可能看不出影响，进入 Join 后错误或缺失的主键会让去重和基数推断失去可靠基础。主键不是为了让界面更好看，而是保证后续模型正确性的契约。
+`id` 被声明为 Primary Key。单表聚合时通常看不出差异，但后续把交易连接到证券和投资组合时，Cube 会依赖主键和 Join 基数避免 fan-out（连接后行数膨胀）导致重复聚合。
 
-## 查询如何变成 SQL
+## 运行
 
-语义查询：
+```bash
+cd cube-demos/02-first-financial-cube
+./demo.sh
+```
+
+脚本会：
+
+1. 调用根目录公共入口启动或更新 Cube 与 PostgreSQL。
+2. 查询全部交易的三个 Measure。
+3. 按 `side` Dimension 分组并断言 BUY/SELL 结果。
+4. 查询 `transactions.not_a_member`，断言 Cube 返回 HTTP 400。
+
+预期输出：
+
+```text
+transaction totals: {'transactions.count': '8', 'transactions.total_quantity': '27800.0000', 'transactions.total_amount': '209350.00000000'}
+side breakdown: {'buy': (...), 'sell': (...)}
+invalid member rejected: HTTP 400
+Chapter 02 passed.
+```
+
+常用命令：
+
+```bash
+./demo.sh verify  # 验证当前第 02 章模型和结果
+./demo.sh logs    # 查看公共 Cube/PostgreSQL 日志
+./demo.sh stop    # 停止公共环境并保留数据卷
+./demo.sh reset   # 重建公共数据卷并重新验证本章
+```
+
+## Playground 测试例子
+
+打开 `http://127.0.0.1:4000`，进入 Build（查询构建）页面：
+
+1. 在 `transactions` Cube 下选择 Measures：`count`、`total_quantity`、`total_amount`。
+2. 选择 Dimension：`side`。
+3. 点击 Run Query（执行查询）。
+
+预期结果：
+
+| `side` | `count` | `total_quantity` | `total_amount` |
+|---|---:|---:|---:|
+| `buy` | 7 | 26800 | 203650 |
+| `sell` | 1 | 1000 | 5700 |
+
+Playground 背后的 Cube Query（Cube 语义查询）等价于：
 
 ```json
 {
-  "measures": ["transactions.total_amount"],
+  "measures": [
+    "transactions.count",
+    "transactions.total_quantity",
+    "transactions.total_amount"
+  ],
   "dimensions": ["transactions.side"]
 }
 ```
 
-概念上会生成类似：
+Cube 概念上生成类似以下 SQL，具体别名由 Cube 决定：
 
 ```sql
-SELECT side, SUM(quantity * price)
-FROM transactions
+SELECT
+    side,
+    COUNT(*) AS count,
+    SUM(quantity) AS total_quantity,
+    SUM(quantity * price) AS total_amount
+FROM public.transactions
 GROUP BY side;
 ```
 
-客户端没有决定表名、Join 或公式，只选择模型允许的成员。这正是语义层与“API 里拼 SQL”的根本差异。
+客户端只选择模型公开的成员，没有传入表名或指标公式。
 
-## 实操步骤
+## 自动化测试
 
-1. 启动第 01 章环境。
-2. 添加 `transactions` YAML 模型。
-3. 在 Playground 查看成员是否成功编译。
-4. 查询交易数、数量和金额。
-5. 查看生成 SQL，并用 PostgreSQL 基准 SQL 交叉验证。
+静态契约测试：
 
-## 正确性测试
+```bash
+python3 -m unittest test_demo.py -v
+```
 
-固定 fixture 至少包含 BUY、SELL、多证券和不同日期。测试不能只断言 HTTP 200，还要断言实际数值。增加一条交易后，明确哪些 measure 应变化以及变化多少。
+真实集成验证：
+
+```bash
+./demo.sh verify
+```
+
+测试不只断言 HTTP 200，还断言固定 fixture 的精确数值：
+
+- 总计：8 笔、27800 单位、成交总额 209350；
+- BUY：7 笔、26800 单位、成交总额 203650；
+- SELL：1 笔、1000 单位、成交总额 5700；
+- 无效成员：HTTP 400，错误响应包含被拒绝的成员名。
 
 ## 常见误区
 
 - 把 `price` 定义为 `sum`，得到没有业务意义的价格总和。
-- 用浮点类型保存货币，产生精度问题；fixture 应使用适合货币的定点数。
-- 在客户端重复计算 `quantity * price`，破坏统一口径。
-- 认为 YAML 能阻止一切错误；语法正确不等于业务定义正确。
+- 用浮点类型保存货币，产生精度问题；公共 fixture 使用 PostgreSQL `NUMERIC`。
+- 在客户端重复计算 `quantity * price`，破坏统一指标口径。
+- 把 `sell` 数量自动当成负数；本章的 `total_quantity` 明确定义为绝对成交数量之和。
+- 认为 YAML 语法通过就代表业务定义正确；本章还用独立固定结果验证指标含义。
 
 ## 验收标准
 
-- 能查询交易数量、成交数量和成交金额。
-- 固定 fixture 上的指标结果有自动化断言。
-- 无效成员查询明确失败。
+- `./demo.sh` 一条命令加载本章模型并完成验证。
+- 能查询交易笔数、成交数量和成交金额。
+- 按买卖方向分组的结果与固定 fixture 一致。
+- 无效成员在语义层明确失败。
+- 第 01、02 章共用根目录环境，不复制 `.env`、Compose 和数据库 fixture。
 
 ## 下一步
 

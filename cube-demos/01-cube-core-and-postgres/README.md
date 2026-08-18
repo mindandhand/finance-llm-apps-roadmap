@@ -2,7 +2,7 @@
 
 ## 学习目标
 
-本章建立整个系列的运行底座。运行案例后应能解释 Cube 进程、源数据库和 Developer Playground 的职责，并能判断“服务启动失败”和“数据源连接失败”属于不同故障层。
+本章建立整个系列的运行底座。运行案例后应能解释 Cube Core（Cube 开源语义层服务）、源数据库和 Developer Playground（开发调试工作台）的职责，并能判断“服务启动失败”和“数据源连接失败”属于不同故障层。
 
 ## 最小架构
 
@@ -14,7 +14,7 @@ graph LR
     B --> E[Developer Playground]
 ```
 
-PostgreSQL 保存事实数据；Cube Core 加载模型、接收语义查询并连接 PostgreSQL；Playground 是开发期检查模型和查询的界面，不是生产 Dashboard。
+PostgreSQL 保存事实数据；Cube Core 加载模型、接收语义查询并连接 PostgreSQL；Playground 是开发期检查模型和查询的界面，不是生产 Dashboard（面向最终用户的数据看板）。
 
 ## 为什么先用两个服务
 
@@ -23,19 +23,21 @@ PostgreSQL 保存事实数据；Cube Core 加载模型、接收语义查询并�
 ## 目录
 
 ```text
-01-cube-core-and-postgres/
-├── compose.yaml
+cube-demos/
 ├── .env.example
+├── compose.yaml
 ├── demo.sh
 ├── data/
 │   ├── schema.sql
 │   └── seed.sql
-├── model/
-│   └── fixture_health.yml
-└── test_demo.py
+└── 01-cube-core-and-postgres/
+    ├── demo.sh
+    ├── model/
+    │   └── fixture_health.yml
+    └── test_demo.py
 ```
 
-数据库 fixture 固定包含 6 张表。`demo.sh reset` 删除本案例自己的数据卷并重新初始化，结果始终一致。真实密钥放在未提交的 `.env`；`.env.example` 中的值只用于本地教学，不能用于生产。
+`.env.example`、Compose 和数据库 fixture 位于 `cube-demos` 根目录，供后续章节共用；本章目录只保留模型、章节验证脚本和测试。fixture 固定包含 6 张表。`demo.sh reset` 删除公共教学数据卷并重新初始化，结果始终一致。真实密钥放在未提交的 `cube-demos/.env`；模板中的值只用于本地教学，不能用于生产。
 
 ## 需要理解的配置
 
@@ -45,9 +47,20 @@ Cube 需要知道数据库类型、主机、端口、数据库名和凭据。容
 
 宿主机 PostgreSQL 端口默认使用 `55432`，避免和常见的本地 `5432` 服务冲突。容器之间仍通过 Compose 网络上的 `postgres:5432` 通信。
 
+## `4000` 端口负责什么
+
+`4000` 是 Cube Core 的 HTTP（Hypertext Transfer Protocol，超文本传输协议）服务端口，不是一个独立的“管理端口”。当前案例开启开发模式后，同一个端口提供：
+
+- Developer Playground（开发调试工作台）：浏览器访问 `http://127.0.0.1:4000`；
+- REST API（基于 HTTP 和 JSON 的查询接口）：例如 `/cubejs-api/v1/load`；
+- Meta API（元数据接口）：供客户端发现 Cube、measure（度量）和 dimension（维度）；
+- readiness probe（就绪检查）`/readyz` 和 liveness probe（存活检查）`/livez`。
+
+Playground 类似“查询调试器 + API 调试页面”：它可以选择语义成员、执行查询、预览结果并辅助检查模型，但不是生产管理后台，也不是交付给最终用户的 BI（Business Intelligence，商业智能）系统。`CUBEJS_DEV_MODE=true` 会关闭部分安全检查，因此只能用于本地开发。
+
 ## 为什么使用隔离容器
 
-Compose 会复用本机已有的相同镜像缓存，但创建属于 `cube-demo-01` 的独立容器、网络和数据卷。不要直接向其他项目正在运行的 PostgreSQL 写入教学 fixture，也不要复用带有其他模型挂载的 Cube 容器；那会污染现有数据，并让本章结果依赖仓库外状态。
+Compose 会复用本机已有的相同镜像缓存，但创建属于 `cube-demos` 学习路径的独立容器、网络和数据卷。第 01、02 章共用这套教学环境，但不直接向其他项目正在运行的 PostgreSQL 写入 fixture，也不复用带有其他模型挂载的 Cube 容器。
 
 ## 运行
 
@@ -73,12 +86,48 @@ Cube and PostgreSQL are ready.
 ./demo.sh reset   # 删除本案例数据卷并重新初始化
 ```
 
+## Playground 测试例子
+
+这个例子用浏览器验证 `fixture_health` 模型能否通过 Cube 读取全部 PostgreSQL fixture 表。
+
+1. 运行 `./demo.sh`，确认终端显示 `Cube and PostgreSQL are ready.`。
+2. 打开 `http://127.0.0.1:4000`。
+3. 进入 Playground 的 Build（查询构建）页面。
+4. 在 `fixture_health` Cube 下选择两个 Dimensions（维度）：`table_name` 和 `row_count`。
+5. 点击 Run Query（执行查询）。
+
+预期得到以下 6 行；显示顺序可能不同：
+
+| `table_name` | `row_count` |
+|---|---:|
+| `users` | 3 |
+| `securities` | 4 |
+| `daily_prices` | 8 |
+| `portfolios` | 3 |
+| `positions` | 6 |
+| `transactions` | 8 |
+
+Playground 在背后发送的 Cube Query（Cube 语义查询）等价于：
+
+```json
+{
+  "dimensions": [
+    "fixture_health.table_name",
+    "fixture_health.row_count"
+  ]
+}
+```
+
+这里故意不选择 Measure（度量）。`fixture_health` 是本章专用的运行状态模型，`row_count` 已经由模型 SQL 计算完成，并作为 Dimension 暴露。第 02 章才会正式定义交易笔数、成交金额等业务 Measure。
+
+如果 Playground 页面能打开但查询失败，说明 Cube HTTP 进程仍在运行，但模型编译或 PostgreSQL 数据链路存在问题。此时运行 `./demo.sh logs` 查看具体错误。
+
 ## 如何验证
 
 `demo.sh` 验证四层：
 
 1. PostgreSQL 容器健康。
-2. Cube `/readyz` 返回成功。
+2. Cube readiness probe（就绪检查）`/readyz` 返回成功。
 3. `fixture_health` 模型能通过 Cube 查询全部 fixture 表。
 4. API 返回的 6 张表行数与固定基准完全一致。
 

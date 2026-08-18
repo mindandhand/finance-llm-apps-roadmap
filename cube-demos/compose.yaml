@@ -31,7 +31,7 @@ services:
     ports:
       - "${CUBE_PORT}:4000"
     volumes:
-      - ./model:/cube/conf/model:ro
+      - ${CUBE_MODEL_DIR:-./01-cube-core-and-postgres/model}:/cube/conf/model:ro
     depends_on:
       postgres:
         condition: service_healthy

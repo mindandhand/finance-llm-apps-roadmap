@@ -137,6 +137,26 @@ sequenceDiagram
 
 教学数据只用于验证模型和查询语义，不代表生产数据模型，也不从网络实时下载。
 
+## 公共运行环境
+
+从第 02 章开始，所有章节共用 `cube-demos` 根目录下的运行环境，不在每个章节复制 Compose、`.env.example` 和数据库 fixture：
+
+```text
+cube-demos/
+├── .env.example          # 公共环境变量模板
+├── compose.yaml          # 公共 Cube Core 与 PostgreSQL
+├── demo.sh               # 公共服务启停和就绪检查
+├── data/                 # 公共数据库 schema 与 seed
+├── 01-.../
+│   ├── demo.sh           # 第 01 章断言
+│   └── model/
+└── 02-.../
+    ├── demo.sh           # 第 02 章断言
+    └── model/
+```
+
+章节 `demo.sh` 通过 `CUBE_MODEL_DIR` 选择本章模型，然后调用公共入口。PostgreSQL、网络、数据卷和宿主机 `4000`/`55432` 端口保持共用；切换章节时只更新 Cube 使用的模型目录。
+
 ## 学习路径
 
 | # | 目录 | 主题 | 新增能力 | 验收标准 |
@@ -206,4 +226,4 @@ LLM 只负责理解问题、选择公开成员和组织受约束查询。数值�
 
 ## 实施顺序
 
-先只实现 `01-cube-core-and-postgres`，确认当前环境的容器运行时、Cube Core 镜像和 PostgreSQL 连接方式。验证通过后再提取共享 fixture；不要在第一个示例之前预建复杂公共框架。
+`01-cube-core-and-postgres` 已确认容器运行时、Cube Core 镜像和 PostgreSQL 连接方式；公共环境现已提取到 `cube-demos` 根目录。后续章节只增加本章模型、查询和断言，不再复制基础设施。

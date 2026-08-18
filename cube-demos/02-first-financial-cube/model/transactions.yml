@@ -1,0 +1,46 @@
+cubes:
+  - name: transactions
+    title: Transactions
+    description: Fixed tutorial trades with reusable quantity and amount metrics.
+    sql_table: public.transactions
+
+    dimensions:
+      - name: id
+        sql: id
+        type: number
+        primary_key: true
+
+      - name: tenant_id
+        sql: tenant_id
+        type: string
+
+      - name: portfolio_id
+        sql: portfolio_id
+        type: number
+
+      - name: security_id
+        sql: security_id
+        type: number
+
+      - name: side
+        sql: side
+        type: string
+
+      - name: traded_at
+        sql: traded_at
+        type: time
+
+    measures:
+      - name: count
+        description: Number of transaction rows.
+        type: count
+
+      - name: total_quantity
+        description: Sum of traded units without applying buy or sell signs.
+        sql: quantity
+        type: sum
+
+      - name: total_amount
+        description: Gross traded amount before fees, calculated as quantity times price.
+        sql: "quantity * price"
+        type: sum
