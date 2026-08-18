@@ -1,0 +1,25 @@
+cubes:
+  - name: fixture_health
+    description: Operational check that Cube can read every tutorial fixture table.
+    sql: |
+      SELECT 'users' AS table_name, COUNT(*)::BIGINT AS row_count FROM public.users
+      UNION ALL
+      SELECT 'securities', COUNT(*)::BIGINT FROM public.securities
+      UNION ALL
+      SELECT 'daily_prices', COUNT(*)::BIGINT FROM public.daily_prices
+      UNION ALL
+      SELECT 'portfolios', COUNT(*)::BIGINT FROM public.portfolios
+      UNION ALL
+      SELECT 'positions', COUNT(*)::BIGINT FROM public.positions
+      UNION ALL
+      SELECT 'transactions', COUNT(*)::BIGINT FROM public.transactions
+
+    dimensions:
+      - name: table_name
+        sql: table_name
+        type: string
+        primary_key: true
+
+      - name: row_count
+        sql: row_count
+        type: number

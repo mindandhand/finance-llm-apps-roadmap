@@ -193,6 +193,7 @@ LLM 只负责理解问题、选择公开成员和组织受约束查询。数值�
 
 实现代码时以固定版本的官方文档为准：
 
+- [Cube.js GitHub 仓库](https://github.com/cube-js/cube)
 - [Cube Introduction](https://docs.cube.dev/docs/introduction)
 - [Data Modeling](https://docs.cube.dev/docs/data-modeling/overview)
 - [Cubes](https://docs.cube.dev/docs/data-modeling/cubes)
