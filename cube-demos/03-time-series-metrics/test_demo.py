@@ -52,6 +52,19 @@ class TimeSeriesMetricsDemoTest(unittest.TestCase):
         self.assertNotIn("trap 'rm -f", script)
         self.assertNotRegex(script, r"sleep\s+(?:[1-9]\d*|0*[1-9])")
 
+    def test_readme_explains_time_aggregation_for_beginners(self) -> None:
+        readme = self.read("README.md")
+
+        for expected in (
+            "第 02 章定义指标",
+            "DATE_TRUNC('day', traded_at)",
+            "GROUP BY",
+            "原始时间明细",
+            "transactions.traded_at",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, readme)
+
 
 if __name__ == "__main__":
     unittest.main()
