@@ -46,6 +46,21 @@ class FirstFinancialCubeDemoTest(unittest.TestCase):
         self.assertIn("name: total_amount", model)
         self.assertIn('sql: "quantity * price"', model)
 
+    def test_transactions_model_exposes_chinese_business_labels(self) -> None:
+        model = self.read("model/transactions.yml")
+
+        for label in (
+            "交易",
+            "交易方向",
+            "证券标识",
+            "交易时间",
+            "交易笔数",
+            "成交数量",
+            "成交金额",
+        ):
+            with self.subTest(label=label):
+                self.assertIn(f"title: {label}", model)
+
     def test_entrypoint_asserts_totals_groups_and_invalid_member(self) -> None:
         script = self.read("demo.sh")
 
