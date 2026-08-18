@@ -58,6 +58,8 @@ class FirstFinancialCubeDemoTest(unittest.TestCase):
         self.assertIn("transactions.not_a_member", script)
         self.assertIn("209350", script)
         self.assertIn("27800", script)
+        self.assertNotIn("trap 'rm -f", script)
+        self.assertIn('rm -f "$error_file"', script)
         self.assertNotRegex(script, r"sleep\s+(?:[1-9]\d*|0*[1-9])")
 
 
