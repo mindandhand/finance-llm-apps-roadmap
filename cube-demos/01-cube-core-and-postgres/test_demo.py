@@ -33,12 +33,17 @@ class CubeCorePostgresDemoTest(unittest.TestCase):
     def test_compose_uses_pinned_images_and_the_service_hostname(self) -> None:
         compose = self.read("compose.yaml")
 
-        self.assertRegex(compose, r"image: postgres:\d+\.\d+-bookworm")
-        self.assertRegex(compose, r"image: cubejs/cube:v\d+\.\d+\.\d+")
+        self.assertIn("image: postgres:16.14-alpine", compose)
+        self.assertIn("image: cubejs/cube:v1.7.11", compose)
         self.assertNotIn(":latest", compose)
         self.assertIn("CUBEJS_DB_HOST: postgres", compose)
         self.assertIn("CUBEJS_DEV_MODE: \"true\"", compose)
         self.assertIn("./model:/cube/conf/model:ro", compose)
+
+    def test_example_ports_do_not_collide_with_the_existing_postgres(self) -> None:
+        env_example = self.read(".env.example")
+
+        self.assertIn("POSTGRES_PORT=55432", env_example)
 
     def test_fixture_defines_and_seeds_every_shared_table(self) -> None:
         schema = self.read("data/schema.sql")
