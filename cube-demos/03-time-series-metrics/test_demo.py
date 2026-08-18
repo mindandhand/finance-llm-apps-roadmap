@@ -65,6 +65,20 @@ class TimeSeriesMetricsDemoTest(unittest.TestCase):
             with self.subTest(expected=expected):
                 self.assertIn(expected, readme)
 
+    def test_readme_explains_cube_internal_query_pipeline(self) -> None:
+        readme = self.read("README.md")
+
+        for expected in (
+            "语义模型编译器",
+            "查询编排器",
+            "缓存未命中",
+            "预聚合",
+            "PostgreSQL 负责实际计算",
+            "结果映射",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, readme)
+
 
 if __name__ == "__main__":
     unittest.main()
