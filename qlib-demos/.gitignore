@@ -1,0 +1,6 @@
+# 项目本地环境和实验输出
+.venv-*/
+.python/
+.uv-cache/
+mlruns/
+Users/

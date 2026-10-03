@@ -4,12 +4,9 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from qlib_demo_common import (
+    chronological_segments,
     load_features,
     print_context,
-    test_start_time,
-    train_end_time,
-    valid_end_time,
-    valid_start_time,
     with_datetime_instrument_index,
 )
 
@@ -23,9 +20,10 @@ def main() -> None:
     names = ["close", "feature_mom20", "label_fwd5_return"]
     data = with_datetime_instrument_index(load_features(fields, names)).dropna()
 
-    train = data.loc[:train_end_time()]
-    valid = data.loc[valid_start_time():valid_end_time()]
-    test = data.loc[test_start_time():]
+    segments = chronological_segments(label_horizon=5)
+    train = data.loc[slice(*segments["train"])]
+    valid = data.loc[slice(*segments["valid"])]
+    test = data.loc[slice(*segments["test"])]
 
     print_context("Qlib labels and chronological splits")
     print("full shape:", data.shape)

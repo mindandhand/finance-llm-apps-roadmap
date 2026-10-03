@@ -11,7 +11,7 @@
 ```mermaid
 graph TD
     A["Alpha158 + DatasetH"] --> B["LGBModel.fit"]
-    B --> C["SignalRecord"]
+    B --> C["BacktestSignalRecord"]
     C --> D["pred.pkl"]
     C --> E["label.pkl"]
     B --> F["(model, dataset) signal"]
@@ -27,7 +27,7 @@ graph TD
 
 ### `build_dataset()`
 
-构造 `Alpha158` handler 和 `DatasetH`。这一步给模型提供 feature / label，也给后续 signal 生成提供 test segment。
+构造 `Alpha158` handler 和 `DatasetH`。训练和验证段按标签跨度隔离；`test` 保留到用户截止日的完整特征，供预测及策略使用；`test_label` 仅保留标签终点不超过截止日的样本。
 
 ### `build_port_analysis_config(model, dataset)`
 
@@ -63,13 +63,13 @@ limit_threshold
 
 这些参数决定成交价格、交易成本和涨跌停限制。模型 IC 不包含这些约束，组合回测才包含。
 
-### `SignalRecord`
+### `BacktestSignalRecord`
 
-`SignalRecord(model, dataset, recorder).generate()` 会对 `DatasetH` 的 test segment 调用模型预测，并把预测值和真实标签保存为两个 Recorder artifact：
+`BacktestSignalRecord` 继承 Qlib 的 `SignalRecord`，沿用原生预测与保存流程，仅覆盖标签读取方法。它对完整 `test` 段预测，从安全的 `test_label` 段读取真实标签，保存为两个 Recorder artifact：
 
 ```text
 pred.pkl   模型预测分数
-label.pkl  与预测行对齐的真实标签
+label.pkl  test_label 安全子集的真实标签
 ```
 
 注意文件名是 `label.pkl`，不是 `lable.pkl`。
@@ -92,7 +92,7 @@ datetime   instrument
 
 #### `label.pkl` 保存什么
 
-`label.pkl` 也是 pandas `DataFrame`，使用与 `pred.pkl` 相同的 `datetime/instrument` 两级索引，标签列名是 `LABEL0`：
+`label.pkl` 也是 pandas `DataFrame`，使用 `datetime/instrument` 两级索引，标签列名是 `LABEL0`。索引结构与预测相同，但日期少于预测，评估时按共同索引对齐：
 
 ```text
                          LABEL0
@@ -112,7 +112,7 @@ Ref($close, -2) / Ref($close, -1) - 1
 
 `label.pkl` 用于训练结果和信号质量评估，不参与本节的组合交易决策。回测时提前读取它会造成未来数据泄漏。
 
-当前一次实际运行中，两个文件都是 `3070 × 1`，日期从 `2024-01-02` 到 `2026-07-17`。这是运行结果示例，不是固定规格；数据区间、交易日数量或标的池变化后，行数也会变化。
+对于这里引用未来两个交易日的标签，`pred.pkl` 保留测试期最后两个交易日的预测，`label.pkl` 则不记录这些尚未在截止日前成熟的标签。因此两个文件的行数不要求相同；具体行数取决于数据区间和标的池。
 
 #### `.pkl` 是什么格式
 
@@ -168,21 +168,25 @@ port_analysis_1day.pkl
 1. 初始化 Qlib。
 2. 构造 `Alpha158 + DatasetH`。
 3. 训练 `LGBModel`。
-4. `SignalRecord` 保存预测信号。
+4. `BacktestSignalRecord` 保存完整预测和安全标签子集。
 5. `PortAnaRecord` 用 Qlib strategy/executor/exchange/account 跑回测。
 6. 脚本加载并打印 portfolio report 和 risk analysis。
 
 ## 运行方式
 
+时间切分按 provider 的实际交易日历处理：标签最远引用未来 2 个交易日，因此会剔除训练/验证尾部中标签跨入下一段的样本，并从 `test_label` 剔除标签超过 `QLIB_END_TIME` 的样本；供预测使用的 `test` 段不作末尾裁剪。已有间隔计入隔离期；区间重叠或剔除后为空时会报错。
+
 ```bash
 QLIB_PROVIDER_URI=~/.qlib/qlib_data/cn_data python native_backtest_architecture.py
 ```
 
+默认持仓 2 只、每日最多替换 1 只，适合内置的五只 ETF。要求 `topk >= 1` 且 `0 <= n_drop <= topk`。原生回测和预测均保留到声明的结束日；最后两个交易日仍有可用预测，策略按 Qlib 原生规则在后续交易步使用信号。
+
 可选：
 
 ```bash
-QLIB_TOPK=50
-QLIB_N_DROP=5
+QLIB_TOPK=2
+QLIB_N_DROP=1
 QLIB_BENCHMARK=SH000300
 QLIB_DEAL_PRICE=close
 ```

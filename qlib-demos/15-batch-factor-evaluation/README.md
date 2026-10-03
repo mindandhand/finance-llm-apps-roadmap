@@ -26,7 +26,9 @@ candidates.json
   -> 候选 A 调用 Demo 14
   -> 候选 B 调用 Demo 14
   -> 候选 C 调用 Demo 14
-  -> 汇总成功、失败和 RankIC 排名
+  -> 比较有效样本指纹，相同才按选择期 RankIC 排名
+  -> 冻结前 top_k 名，只对这些候选评估最终测试期
+  -> 汇总结果、数据版本和代码版本
   -> stdout / 可选 JSON 文件
 ```
 
@@ -53,6 +55,9 @@ candidates.json
   "label": "Ref($close, -5) / $close - 1",
   "quantiles": 3,
   "min_cross_section": 3,
+  "selection_period": {"start": "2020-01-01", "end": "2020-09-30"},
+  "test_period": {"start": "2020-10-01", "end": "2020-12-31"},
+  "top_k": 1,
   "candidates": [
     {
       "name": "momentum_20d",
@@ -72,7 +77,7 @@ candidates.json
 | `ma_deviation_10d` | `$close / Mean($close, 10) - 1` | 当前价格相对 10 日均价的偏离程度 |
 | `volume_ratio_20d` | `$volume / Mean($volume, 20)` | 当前成交量相对 20 日均量的倍数 |
 
-它们都使用同一个“未来 5 日收益”标签，所以 RankIC 才可以放进同一张诊断排名。
+它们使用同一个“未来 5 日收益”标签；仍需检查实际有效日期和标的完全相同，才能放进同一张诊断排名。不同回看窗口、缺失值和常量因子都可能改变有效样本。
 
 ## 运行方式
 
@@ -94,9 +99,14 @@ python qlib-demos/15-batch-factor-evaluation/batch_factor_evaluation.py \
 
 输出包含：
 
+- `request`：补齐默认值后的完整批量配置，包括 `top_k`、候选表达式和区间，便于重建请求。
 - `status`：全部成功为 `ok`，部分候选失败为 `partial`。
 - `summary`：候选总数、成功数和失败数。
-- `ranked_by_abs_rank_ic`：按 `abs(rank_ic_mean)` 排序的诊断列表。
+- `ranked_by_abs_rank_ic`：仅在有效样本完全相同时，按选择期 `abs(rank_ic_mean)` 排序。
+- `comparison`：有效 RankIC 日期—标的样本是否相同；未知或不同会禁用排名及最终测试选择。
+- `selected_candidates`：依据选择期排名冻结的前 `top_k` 名，保留选择期符号和分数。
+- `final_test`：仅对冻结名单计算的测试期结果及独立成功/失败统计；不产生测试期排名。
+- `evaluation_context`：运行 ID、UTC 时间、日期区间、标的配置、provider 路径/内容 SHA256、Git revision、实际核心源文件 SHA256、配置 SHA256，以及实际 Python / pyqlib / pandas / numpy / scipy 版本。
 - `results`：每个候选完整的 metrics 或结构化 error。
 
 成功批次的简化结构如下：
@@ -125,7 +135,7 @@ python qlib-demos/15-batch-factor-evaluation/batch_factor_evaluation.py \
 }
 ```
 
-`results` 才是完整事实记录；`ranked_by_abs_rank_ic` 只是从成功结果中抽出的快捷索引。没有有效 RankIC 的成功候选仍保留在 `results` 中，但不会进入排名。
+上面的 JSON 省略了追溯、样本比较和测试字段，数字仅用于说明结构。`results` 才是选择期完整事实记录；`ranked_by_abs_rank_ic` 只是从成功结果中抽出的快捷索引。没有有效 RankIC 的成功候选仍保留在 `results` 中，但不会进入排名。
 
 ## 候选失败为什么不会中断
 
@@ -162,6 +172,24 @@ python qlib-demos/15-batch-factor-evaluation/batch_factor_evaluation.py \
 | `0` | 所有候选评估成功 |
 | `1` | 部分候选失败、环境错误或输出文件错误 |
 | `2` | 批量配置格式错误 |
+
+## 选择期与最终测试期
+
+仓库配置明确设置两个互不重叠的区间，`selection_period.end` 必须早于 `test_period.start`。先在选择期评估全部候选，按绝对 RankIC 冻结 `top_k` 名，再只对冻结名单计算测试指标。测试指标不参与排名、方向选择或名单调整。第 6 节会依据标签未来窗口和交易日历，剔除标签越过各自区间结束日期的样本，避免选择标签读取测试期收益。
+
+两个区间必须同时配置。只做样本内诊断时，可配置 `evaluation_period: {"start": "2020-01-01", "end": "2020-12-31"}`；它与 `selection_period` / `test_period` 互斥，不接受 `null` 或空对象。旧配置省略所有区间时，首次校验从 `QLIB_START_TIME` / `QLIB_END_TIME` 读取日期，并固化到输出 `request.evaluation_period`。重放该 `request` 会保留原日期和配置指纹，即使环境日期已改变，也不会自动请求最终测试；诊断结果仍明确告警。
+
+`request` 固化的是评估日期和批量参数。provider、标的池、市场和依赖版本仍需按 `evaluation_context` 恢复，不能只靠 `request` 重建所有环境。`QLIB_REGION` 仅接受 `cn` / `us`（大小写兼容），未知值会在初始化 Qlib 前报错；追溯记录使用与实际初始化相同的归一化值。
+
+最终测试失败也保持候选隔离：选择结果仍保留，`final_test.summary` 单独计数，总状态变为 `partial`。若要求最终测试却因样本不可比或无有效 RankIC 而无法选择，最终测试明确标为 `skipped`，总状态同样为 `partial`。可比较候选不足 `top_k`、或测试期没有有效 RankIC，也会明确报告原因并标为 `partial`；测试期空样本不计入成功。
+
+这是一次研究运行中的分离机制，不会阻止人为反复查看同一测试期后修改候选。看过测试结果再调参，该区间就不再是未见测试集，应使用新的留出区间；本节不提供跨运行的测试集封存管理。
+
+## 版本追溯与可比较样本
+
+批次启动时对 provider 的日历/标的池 txt 和行情 features bin 内容计算 SHA256，对实际参与计算的核心 Python 文件计算 SHA256，并记录 Git revision。未提交代码修改会反映在源文件指纹中，同路径数据被替换会反映在 provider 指纹中。完整数据指纹需要读取一次这些核心数据文件；本实现适合教学小数据，真实大数据应使用受控的不可变快照版本。运行期间应保持 provider 不变。标的池配置在 `evaluation_context` 中，实际参与 RankIC 的日期—标的行集合由每个候选的 `metrics.sample.index_sha256` 标识。
+
+相同 coverage、相同标签甚至相同有效天数都不足以证明样本相同。若成功且具有有限 RankIC 的候选指纹不一致，保留全部指标和告警，但不生成排名或测试名单；本节不另算“共同样本”指标。
 
 按 RankIC 绝对值排序只是帮助检查信号强度，不能自动证明候选值得交易。正负方向、coverage、稳定性、分组单调性、经济含义和样本外回测仍需共同判断。
 

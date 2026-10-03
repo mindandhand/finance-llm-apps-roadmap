@@ -1,4 +1,6 @@
 import argparse
+from datetime import date
+import math
 import json
 from pathlib import Path
 import sys
@@ -11,12 +13,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "14-factor-evaluati
 
 from factor_evaluation_service import (
     InputValidationError,
+    JsonArgumentParser,
     SCHEMA_VERSION,
     error_payload,
     evaluate_request,
     serialize_payload,
+    validate_request,
 )
-from qlib_demo_common import init_qlib
+from qlib_demo_common import end_time, init_qlib, start_time
+from qlib_evaluation_metadata import evaluation_context
 
 
 class BatchConfigError(ValueError):
@@ -24,7 +29,7 @@ class BatchConfigError(ValueError):
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Evaluate multiple Qlib factors sequentially.")
+    parser = JsonArgumentParser(description="Evaluate multiple Qlib factors sequentially.")
     parser.add_argument("--input", required=True, help="Batch candidate JSON file.")
     parser.add_argument("--output", default="", help="Optional summary JSON output path.")
     return parser.parse_args(argv)
@@ -37,6 +42,11 @@ def load_config(path: str) -> dict:
     except (OSError, json.JSONDecodeError) as exc:
         raise BatchConfigError(f"cannot read batch config: {exc}") from exc
 
+    return validate_config(config)
+
+
+def validate_config(config: dict) -> dict:
+    """直接函数调用和 CLI 共用批级预检，候选表达式错误仍单独隔离。"""
     if not isinstance(config, dict):
         raise BatchConfigError("batch config must be a JSON object")
     if config.get("schema_version") != SCHEMA_VERSION:
@@ -71,74 +81,152 @@ def load_config(path: str) -> dict:
         raise BatchConfigError("quantiles must be an integer")
     if not isinstance(min_cross_section, int) or isinstance(min_cross_section, bool):
         raise BatchConfigError("min_cross_section must be an integer")
+    try:
+        validate_request("$close", config["label"], quantiles, min_cross_section)
+    except InputValidationError as exc:
+        raise BatchConfigError(str(exc)) from exc
+    config = dict(config)
+    selection = config.get("selection_period")
+    test = config.get("test_period")
+    if "evaluation_period" in config:
+        if "selection_period" in config or "test_period" in config:
+            raise BatchConfigError("evaluation_period cannot be combined with selection_period/test_period")
+        if config["evaluation_period"] is None:
+            raise BatchConfigError("evaluation_period must be a start/end date object")
+    if (selection is None) != (test is None):
+        raise BatchConfigError("selection_period and test_period must be provided together")
+    if selection is None:
+        # 将环境日期固化为可重放的诊断请求，同时保持“不请求最终测试”的语义。
+        config.pop("selection_period", None)
+        config.pop("test_period", None)
+        config.setdefault("evaluation_period", {"start": start_time(), "end": end_time()})
+    for name, period in (("evaluation_period", config.get("evaluation_period")),
+                         ("selection_period", selection), ("test_period", test)):
+        if period is None:
+            continue
+        try:
+            if not isinstance(period, dict):
+                raise ValueError("expected an object")
+            first = date.fromisoformat(period["start"])
+            last = date.fromisoformat(period["end"])
+            if first.isoformat() != period["start"] or last.isoformat() != period["end"]:
+                raise ValueError("expected YYYY-MM-DD")
+            if first > last:
+                raise ValueError("start is after end")
+        except (KeyError, TypeError, ValueError) as exc:
+            raise BatchConfigError(f"invalid {name}: use start/end ISO dates in chronological order") from exc
+    if selection is not None and selection["end"] >= test["start"]:
+        raise BatchConfigError("selection_period must end before test_period starts")
+    top_k = config.get("top_k", 1)
+    if isinstance(top_k, bool) or not isinstance(top_k, int) or not 1 <= top_k <= len(names):
+        raise BatchConfigError("top_k must be an integer between 1 and candidate count")
+    config["top_k"] = top_k
     config["quantiles"] = quantiles
     config["min_cross_section"] = min_cross_section
     return config
 
 
-def evaluate_batch(config: dict) -> dict:
-    """顺序评估全部候选，隔离单项失败，并生成批次汇总。"""
+def _evaluate_candidates(candidates: list[dict], config: dict, period: dict) -> list[dict]:
     results = []
-    for candidate in config["candidates"]:
-        # 每个结果始终回显 name/expression，使失败记录也能脱离输入文件单独审计。
+    for candidate in candidates:
         result = {"name": candidate["name"], "expression": candidate["expression"]}
         try:
-            # main() 已完成 Qlib 环境预检，这里关闭服务层的重复预检。底层仍通过
-            # 第 6 节的 evaluate_factor() 读取数据并计算唯一一套指标。
             result["metrics"] = evaluate_request(
-                candidate["expression"],
-                config["label"],
-                quantiles=config["quantiles"],
-                min_cross_section=config["min_cross_section"],
-                initialize=False,
+                candidate["expression"], config["label"],
+                quantiles=config["quantiles"], min_cross_section=config["min_cross_section"],
+                initialize=False, start_time=period["start"], end_time=period["end"],
+                label_end_time=period["end"],
             )
             result["status"] = "ok"
         except InputValidationError as exc:
-            # 输入问题属于这个候选，例如空表达式或负数 Ref；记录后继续下一个。
             result.update(error_payload("invalid_input", exc))
             result.pop("schema_version")
         except Exception as exc:
-            # Qlib 表达式解析或指标计算错误同样只污染当前候选，不中断批次。
             result.update(error_payload("evaluation_error", exc))
             result.pop("schema_version")
         results.append(result)
+    return results
 
+
+def evaluate_batch(config: dict) -> dict:
+    """先在选择期排名并冻结名单，再独立评估最终测试期。"""
+    config = validate_config(config)
+    selection = config.get("selection_period") or config["evaluation_period"]
+    context = evaluation_context(config, selection)
+    results = _evaluate_candidates(config["candidates"], config, selection)
     succeeded = sum(result["status"] == "ok" for result in results)
     failed = len(results) - succeeded
-    # 负 RankIC 可能表示方向稳定但需要反向使用，因此诊断列表按绝对值排序，
-    # 同时保留原始正负号。这个排名不是自动选因子规则，也不代表投资收益。
+    rankable = [result for result in results if result["status"] == "ok"
+                and isinstance(result["metrics"].get("rank_ic_mean"), (int, float))
+                and math.isfinite(result["metrics"]["rank_ic_mean"])]
+    # coverage 相等也不保证日期/标的相同；只比较拥有完全相同有效样本的候选。
+    samples = [result["metrics"].get("sample", {}).get("index_sha256") for result in rankable]
+    comparable = bool(samples) and all(samples) and len(set(samples)) == 1
     ranked = sorted(
-        (
-            {
-                "name": result["name"],
-                "rank_ic_mean": result["metrics"].get("rank_ic_mean"),
-            }
-            for result in results
-            if result["status"] == "ok"
-            and result["metrics"].get("rank_ic_mean") is not None
-        ),
-        key=lambda item: abs(item["rank_ic_mean"]),
-        reverse=True,
-    )
+        ({"name": result["name"], "rank_ic_mean": result["metrics"]["rank_ic_mean"]}
+         for result in rankable),
+        key=lambda item: abs(item["rank_ic_mean"]), reverse=True,
+    ) if comparable else []
+    selected = ranked[:config["top_k"]] if config.get("test_period") else []
+    selected_names = {item["name"] for item in selected}
+    final_results = _evaluate_candidates(
+        [candidate for candidate in config["candidates"] if candidate["name"] in selected_names],
+        config, config["test_period"],
+    ) if selected else []
+    for result in final_results:
+        if result["status"] != "ok":
+            continue
+        score = result["metrics"].get("rank_ic_mean")
+        if not isinstance(score, (int, float)) or not math.isfinite(score):
+            result.update(error_payload("insufficient_test_data", ValueError("final test has no valid RankIC")))
+            result.pop("schema_version")
+    test_failed = sum(result["status"] != "ok" for result in final_results)
+    test_skipped = bool(config.get("test_period")) and not selected
+    selection_shortfall = bool(config.get("test_period")) and len(selected) < config["top_k"]
+    if test_skipped:
+        test_status, test_reason = "skipped", "no_comparable_selection"
+    elif test_failed:
+        test_status, test_reason = "partial", "test_candidate_failed"
+    elif selection_shortfall:
+        test_status, test_reason = "partial", "insufficient_selected_candidates"
+    else:
+        test_status, test_reason = ("ok", None) if selected else ("not_requested", None)
+    warnings = []
+    if selection_shortfall:
+        warnings.append("满足可比较有效样本条件的候选少于 top_k，最终测试未达到配置目标。")
+    if not comparable:
+        warnings.append("候选有效 RankIC 样本不同或未知，已禁用排名和最终测试选择。")
+    if not config.get("test_period"):
+        warnings.append("未配置独立测试期；结果仅供样本内诊断，不构成样本外验证。")
     return {
         "schema_version": SCHEMA_VERSION,
-        "status": "ok" if failed == 0 else "partial",
+        "request": config,
+        "status": "ok" if failed == 0 and test_failed == 0 and not selection_shortfall else "partial",
         "label": config["label"],
         "quantiles": config["quantiles"],
         "min_cross_section": config["min_cross_section"],
+        "evaluation_context": context,
+        "comparison": {"comparable": comparable,
+                       "reason": "identical_rank_ic_samples" if comparable else "different_or_unknown_rank_ic_samples"},
+        "warnings": warnings,
         "summary": {"total": len(results), "succeeded": succeeded, "failed": failed},
         "ranked_by_abs_rank_ic": ranked,
+        "selected_candidates": selected,
+        "final_test": {"period": config.get("test_period"), "results": final_results,
+                       "status": test_status, "reason": test_reason,
+                       "summary": {"total": len(final_results), "failed": test_failed,
+                                   "succeeded": len(final_results) - test_failed}},
         "results": results,
     }
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    args = parse_args(argv)
     try:
+        args = parse_args(argv)
         # JSON 损坏、schema 不匹配或候选名称重复属于批次级错误。此时无法可靠
         # 标识或比较候选，所以应在访问 Qlib 前以退出码 2 结束。
         config = load_config(args.input)
-    except BatchConfigError as exc:
+    except (BatchConfigError, InputValidationError) as exc:
         print(serialize_payload(error_payload("invalid_batch_config", exc)))
         return 2
 
@@ -149,8 +237,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(serialize_payload(error_payload("environment_error", exc)))
         return 1
 
-    payload = evaluate_batch(config)
-    serialized = serialize_payload(payload)
+    try:
+        payload = evaluate_batch(config)
+        serialized = serialize_payload(payload)
+    except Exception as exc:
+        print(serialize_payload(error_payload("evaluation_error", exc)))
+        return 1
     if args.output:
         try:
             # 先完成全部评估，再一次性写汇总；stdout 与文件使用完全相同的 JSON。

@@ -1,6 +1,9 @@
+import ast
+import hashlib
 import json
 import math
 import os
+import re
 from pathlib import Path
 import sys
 
@@ -8,12 +11,88 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from qlib_demo_common import load_features, print_context, with_datetime_instrument_index
+from qlib_demo_common import (
+    load_features, print_context, with_datetime_instrument_index,
+    end_time as configured_end_time,
+)
 
 
 DEFAULT_FACTOR = "$close / Ref($close, 20) - 1"
 # Ref 使用负数偏移会读取未来数据，因此这个表达式只能作为 label，不能作为 feature。
 DEFAULT_LABEL = "Ref($close, -5) / $close - 1"
+
+
+class InputValidationError(ValueError):
+    """评估请求不满足受限表达式契约。"""
+
+
+class FutureDataLeakageError(InputValidationError):
+    """候选因子包含未来数据引用。"""
+
+
+def validate_expression(expression: str, *, allow_future: bool = False) -> int:
+    """只允许已知的日频算子和数值语法，返回保守的未来交易日窗口。"""
+    if not isinstance(expression, str) or not expression.strip():
+        raise InputValidationError("expression must not be empty")
+    if "__field_" in expression:
+        raise InputValidationError("reserved field placeholder in expression")
+    fields = set()
+
+    def field(match):
+        name = "__field_" + match.group(1)
+        fields.add(name)
+        return name
+
+    source = re.sub(r"\$([A-Za-z_][A-Za-z_0-9]*)", field, expression)
+    try:
+        tree = ast.parse(source.strip(), mode="eval")
+    except (SyntaxError, RecursionError) as exc:
+        raise InputValidationError("invalid expression syntax") from exc
+    # 窗口算子最后一个参数必须为整数字面量，不执行 Python 常量表达式。
+    rolling = {"Ref", "Mean", "Sum", "Std", "Var", "Max", "Min", "Med", "Rank",
+               "Delta", "EMA", "WMA", "Slope", "Rsquare", "Resi", "IdxMax", "IdxMin"}
+    arities = {**dict.fromkeys(rolling, 2), "Corr": 3, "Cov": 3,
+               "Abs": 1, "Log": 1, "Sign": 1, "Power": 2,
+               "Greater": 2, "Less": 2, "If": 3}
+
+    def visit(node):
+        if isinstance(node, ast.Name) and node.id in fields:
+            return 0
+        if isinstance(node, ast.Constant) and type(node.value) in (int, float):
+            if not math.isfinite(node.value):
+                raise InputValidationError("numeric literals must be finite")
+            return 0
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
+            return visit(node.operand)
+        if isinstance(node, ast.BinOp) and isinstance(node.op, (ast.Add, ast.Sub, ast.Mult, ast.Div, ast.Pow, ast.BitAnd, ast.BitOr)):
+            return max(visit(node.left), visit(node.right))
+        if isinstance(node, ast.Compare) and len(node.ops) == 1 and isinstance(node.ops[0], (ast.Gt, ast.GtE, ast.Lt, ast.LtE, ast.Eq, ast.NotEq)):
+            return max(visit(node.left), visit(node.comparators[0]))
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+            name = node.func.id
+            if name not in arities or node.keywords or len(node.args) != arities[name]:
+                raise InputValidationError("unsupported operator, arguments or keywords")
+            horizon = max(visit(arg) for arg in node.args)
+            if name in rolling | {"Corr", "Cov"}:
+                offset_node = node.args[-1]
+                sign = 1
+                if isinstance(offset_node, ast.UnaryOp) and isinstance(offset_node.op, (ast.UAdd, ast.USub)):
+                    sign = -1 if isinstance(offset_node.op, ast.USub) else 1
+                    offset_node = offset_node.operand
+                if not isinstance(offset_node, ast.Constant) or type(offset_node.value) is not int:
+                    raise InputValidationError("window/Ref offset must be a signed integer literal")
+                offset = sign * offset_node.value
+                if offset < 0:
+                    if name != "Ref" or not allow_future:
+                        raise FutureDataLeakageError("factor/window must not read future data")
+                    horizon += -offset
+            return horizon
+        raise InputValidationError("unsupported expression syntax")
+
+    try:
+        return visit(tree.body)
+    except (RecursionError, OverflowError) as exc:
+        raise InputValidationError("expression is too complex") from exc
 
 
 def _rounded(value: float) -> float | None:
@@ -30,6 +109,10 @@ def evaluate_factor(
     label: str,
     quantiles: int = 3,
     min_cross_section: int = 3,
+    *,
+    start_time: str | None = None,
+    end_time: str | None = None,
+    label_end_time: str | None = None,
 ) -> dict:
     """在每天的横截面上评估一个候选因子。
 
@@ -42,21 +125,37 @@ def evaluate_factor(
     返回值不仅包含 IC 等结果，也包含横截面大小和警告。仓库内置的五只 ETF
     适合演示计算过程，但不适合据此判断因子是否真的有效。
     """
+    validate_expression(expression)
+    label_horizon = validate_expression(label, allow_future=True)
+
     # 只有一个分组无法比较高低组；只有一个标的也无法计算横截面相关系数。
-    if quantiles < 2:
-        raise ValueError("quantiles must be at least 2")
-    if min_cross_section < 2:
-        raise ValueError("min_cross_section must be at least 2")
+    if type(quantiles) is not int or quantiles < 2:
+        raise InputValidationError("quantiles must be an integer of at least 2")
+    if type(min_cross_section) is not int or min_cross_section < 2:
+        raise InputValidationError("min_cross_section must be an integer of at least 2")
 
     # Qlib 同时计算因子和标签，保证二者使用相同日期与标的索引。
     # 标准索引顺序是 (datetime, instrument)，这样才能按日期做横截面分组。
+    date_options = {}
+    if start_time is not None:
+        date_options["date_start"] = start_time
+    if end_time is not None:
+        date_options["date_end"] = end_time
     data = with_datetime_instrument_index(
-        load_features([expression, label], ["factor", "label"])
+        load_features([expression, label], ["factor", "label"], **date_options)
     )
+    if label_horizon or label_end_time is not None:
+        from qlib.data import D
+
+        label_end_time = label_end_time or end_time or configured_end_time()
+
+        calendar = pd.DatetimeIndex(D.calendar(end_time=label_end_time, freq="day"))
+        safe_dates = calendar[:-label_horizon] if label_horizon else calendar
+        data = data[data.index.get_level_values("datetime").isin(safe_dates)]
 
     # coverage 的分母必须在 dropna 之前记录，否则覆盖率永远会是 100%。
     total_rows = len(data)
-    data = data.dropna()
+    data = data.replace([float("inf"), float("-inf")], float("nan")).dropna()
 
     # 每个日期是一张横截面：行数表示当天同时拥有 factor 和 label 的标的数。
     # IC 是“同一天不同标的之间”的相关性，不是单只标的沿时间方向的相关性。
@@ -68,6 +167,16 @@ def evaluate_factor(
         data.index.get_level_values("datetime").isin(eligible_dates)
     ]
 
+    def daily_correlation(group: pd.DataFrame) -> pd.Series:
+        if group["factor"].nunique() < 2 or group["label"].nunique() < 2:
+            return pd.Series({"ic": float("nan"), "rank_ic": float("nan")})
+        # 缩放可避免极大但有限的输入在相关系数计算时溢出。
+        factor = group["factor"] / group["factor"].abs().max()
+        label_values = group["label"] / group["label"].abs().max()
+        # 排名使用原值，避免缩放下溢把不同的小数值压成相同的 0。
+        return pd.Series({"ic": factor.corr(label_values),
+                          "rank_ic": group["factor"].rank().corr(group["label"].rank())})
+
     if eligible.empty:
         # 显式创建列，保证后续即使没有合格日期也能返回稳定的 JSON schema。
         daily = pd.DataFrame(columns=["ic", "rank_ic"], dtype=float)
@@ -76,14 +185,7 @@ def evaluate_factor(
         # Pearson IC 关注因子值与收益值的线性关系；
         # Spearman RankIC 关注因子排序与收益排序是否一致。
         daily = eligible.groupby(level="datetime").apply(
-            lambda g: pd.Series(
-                {
-                    "ic": g["factor"].corr(g["label"]),
-                    # Spearman 相关等价于“两个序列先排名，再计算 Pearson 相关”。
-                    # 显式写出 rank 既便于学习，也避免 Pandas 隐式要求 SciPy。
-                    "rank_ic": g["factor"].rank().corr(g["label"].rank()),
-                }
-            ),
+            daily_correlation,
         )
 
     def quantile_return(group: pd.DataFrame) -> pd.Series:
@@ -123,14 +225,18 @@ def evaluate_factor(
     )
 
     # daily 中每一行代表一天。这里的标准差衡量每日 IC 的时间稳定性。
-    ic_std = daily["ic"].std()
+    daily = daily.replace([float("inf"), float("-inf")], float("nan"))
+    valid_ic = daily["ic"].dropna()
+    ic_std = valid_ic.std()
     rank_ic_std = daily["rank_ic"].std()
     ic_days = int(daily["ic"].notna().sum())
     ic_mean = daily["ic"].mean()
     rank_ic_mean = daily["rank_ic"].mean()
 
     # 告警不会阻止程序输出，但提醒调用者不要把教学小样本当成统计结论。
-    warnings = []
+    warnings = ["IC t 统计量及年化 ICIR 未校正自相关；重叠未来收益标签会产生序列相关，不能据此判断显著性。"]
+    if any(group["factor"].duplicated().any() for _, group in eligible.groupby(level="datetime")):
+        warnings.append("因子存在并列值；分组收益用标的顺序打破并列，其组间差异不能解释为因子排序信息。")
     median_size = float(cross_section_sizes.median()) if len(cross_section_sizes) else 0.0
     if median_size < 30:
         warnings.append(
@@ -139,7 +245,12 @@ def evaluate_factor(
     if ic_days < 20:
         warnings.append("有效 IC 日期少于 20，稳定性指标不可靠。")
 
+    rank_dates = daily.index[daily["rank_ic"].notna()]
+    sample_index = eligible.index[eligible.index.get_level_values("datetime").isin(rank_dates)]
+    sample_rows = [(pd.Timestamp(date).isoformat(), str(instrument)) for date, instrument in sample_index]
+    sample_hash = hashlib.sha256(json.dumps(sample_rows, separators=(",", ":")).encode()).hexdigest()
     return {
+        "sample": {"index_sha256": sample_hash, "rows": len(sample_rows)},
         "expression": expression,
         "label": label,
         "rows": int(len(data)),
@@ -151,7 +262,7 @@ def evaluate_factor(
         "ic_mean": _rounded(ic_mean),
         "ic_std": _rounded(ic_std),
         # 正 IC 日期占比用于观察方向是否稳定；它不是统计显著性的替代品。
-        "ic_positive_ratio": _rounded((daily["ic"] > 0).mean()) if ic_days else None,
+        "ic_positive_ratio": _rounded((valid_ic > 0).mean()) if ic_days else None,
         # t 统计量 = 均值 / 均值的标准误，仅作为基础诊断，未处理自相关等问题。
         "ic_t_stat": _rounded(ic_mean / (ic_std / math.sqrt(ic_days)))
         if ic_days > 1 and ic_std
@@ -165,7 +276,7 @@ def evaluate_factor(
         "rank_icir_annualized": _rounded(rank_ic_mean / rank_ic_std * math.sqrt(252))
         if rank_ic_std
         else None,
-        "quantile_return_mean": {str(int(k)): round(float(v), 6) for k, v in quantile_mean.items()},
+        "quantile_return_mean": {str(int(k)): _rounded(v) for k, v in quantile_mean.items()},
         "warnings": warnings,
     }
 
@@ -175,7 +286,7 @@ def main() -> None:
     label = os.getenv("QLIB_LABEL_EXPR", DEFAULT_LABEL)
     print_context("Qlib factor evaluation")
     metrics = evaluate_factor(expression, label)
-    print(json.dumps(metrics, indent=2, ensure_ascii=False))
+    print(json.dumps(metrics, indent=2, ensure_ascii=False, allow_nan=False))
 
 
 if __name__ == "__main__":

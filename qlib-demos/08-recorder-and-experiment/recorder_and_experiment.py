@@ -23,13 +23,12 @@ def main() -> None:
             factor_expression=expression,
             label_expression=label,
         )
-        R.log_metrics(
-            coverage=metrics["coverage"],
-            ic_mean=metrics["ic_mean"],
-            rank_ic_mean=metrics["rank_ic_mean"],
-            icir_daily=metrics["icir_daily"] or 0.0,
-            rank_icir_daily=metrics["rank_icir_daily"] or 0.0,
-        )
+        # MLflow 不接受 None；未定义指标保留在原始 artifact 中，不伪记成 0。
+        R.log_metrics(**{
+            name: metrics[name]
+            for name in ("coverage", "ic_mean", "rank_ic_mean", "icir_daily", "rank_icir_daily")
+            if metrics[name] is not None
+        })
         R.save_objects(**{"metrics.pkl": metrics})
 
     print("recorded metrics:", metrics)

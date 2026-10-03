@@ -83,6 +83,8 @@ score 是模型排序信号，不是策略收益。它后续还要进入 IC 评�
 
 ## 运行方式
 
+时间切分按 provider 的实际交易日历处理：标签最远引用未来 2 个交易日，因此会剔除训练/验证尾部中标签跨入下一段的样本，以及测试尾部中标签超过 `QLIB_END_TIME` 的样本。已有间隔计入隔离期；区间重叠或剔除后为空时会报错。
+
 ```bash
 QLIB_PROVIDER_URI=~/.qlib/qlib_data/cn_data python model_training_baseline.py
 ```

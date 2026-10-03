@@ -40,7 +40,7 @@ def test_run_returns_stable_success_payload(monkeypatch):
     payload, exit_code = service.run(args())
 
     assert exit_code == 0
-    assert payload == {
+    assert {key: payload[key] for key in ("schema_version", "status", "metrics")} == {
         "schema_version": "1.0",
         "status": "ok",
         "metrics": {"ic_mean": 0.1},
@@ -83,3 +83,55 @@ def test_main_returns_json_for_argparse_errors(capsys):
     assert exit_code == 2
     assert payload["status"] == "error"
     assert payload["error"]["code"] == "invalid_input"
+
+
+def test_ast_validation_rejects_bypasses_before_initialization(monkeypatch):
+    import pytest
+
+    monkeypatch.setattr(service, "init_qlib", lambda: pytest.fail("initialized invalid request"))
+    for expression in (
+        "Ref($close, -(1))", "Ref($close, 0-1)", "Ref($close, -1.0)",
+        "Ref($close, N=-1)", "Ref($close, int(-1))", "Ref($close, $volume)",
+        "Mean($close, -1)", "__import__('os').system('echo unsafe')",
+        "Mean.__call__($close, 5)", "($close).__class__", "Ref($close, True)",
+    ):
+        payload, code = service.run(args(expression=expression))
+        assert code == 2, expression
+        assert payload["error"]["code"] == "invalid_input"
+
+
+def test_labels_are_syntax_validated_but_allow_future_ref():
+    import pytest
+
+    service.validate_request("Mean($close, 5) / Ref($close, +2)", "Ref($close, -5)", 3, 3)
+    with pytest.raises(service.InputValidationError):
+        service.validate_request("$close", "__import__('os').system('echo unsafe')", 3, 3)
+
+
+def test_request_controls_reject_bool_float_and_nonstring_expressions():
+    import pytest
+
+    for value in (True, 3.0, "3", None):
+        with pytest.raises(service.InputValidationError):
+            service.validate_request("$close", "$close", value, 3)
+        with pytest.raises(service.InputValidationError):
+            service.validate_request("$close", "$close", 3, value)
+    with pytest.raises(service.InputValidationError):
+        service.validate_request(None, "$close", 3, 3)
+
+
+def test_cli_success_contains_request_and_reproducible_context(monkeypatch, tmp_path):
+    monkeypatch.setattr(service, "init_qlib", lambda: None)
+    monkeypatch.setattr(service, "evaluate_factor", lambda *a, **kw: {"ic_mean": 0.2})
+    monkeypatch.setenv("QLIB_PROVIDER_URI", str(tmp_path))
+    monkeypatch.setenv("QLIB_START_TIME", "2023-01-01")
+    monkeypatch.setenv("QLIB_END_TIME", "2023-06-30")
+    payload, code = service.run(args())
+    assert code == 0
+    assert payload["request"]["expression"] == args().expression
+    assert payload["request"]["quantiles"] == 3
+    context = payload["evaluation_context"]
+    assert context["selection_period"] == {"start": "2023-01-01", "end": "2023-06-30"}
+    assert context["provider"]["uri"] == str(tmp_path)
+    assert context["code"]["source_sha256"]
+    assert context["config_sha256"]

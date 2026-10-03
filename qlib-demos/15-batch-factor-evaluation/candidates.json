@@ -16,5 +16,14 @@
       "name": "volume_ratio_20d",
       "expression": "$volume / Mean($volume, 20)"
     }
-  ]
+  ],
+  "selection_period": {
+    "start": "2020-01-01",
+    "end": "2020-09-30"
+  },
+  "test_period": {
+    "start": "2020-10-01",
+    "end": "2020-12-31"
+  },
+  "top_k": 1
 }

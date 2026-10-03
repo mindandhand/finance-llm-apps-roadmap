@@ -10,8 +10,12 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from qlib.data.dataset.handler import DataHandlerLP
+from qlib.workflow.record_temp import SignalRecord
+
 from qlib_demo_common import (
     benchmark,
+    chronological_segments,
     end_time,
     init_qlib,
     instrument_pool,
@@ -19,10 +23,15 @@ from qlib_demo_common import (
     print_context,
     start_time,
     test_start_time,
-    train_end_time,
-    valid_end_time,
-    valid_start_time,
 )
+
+
+class BacktestSignalRecord(SignalRecord):
+    """预测覆盖完整测试期，标签只记录截止日前已成熟的样本。"""
+
+    @staticmethod
+    def generate_label(dataset):
+        return dataset.prepare("test_label", col_set="label", data_key=DataHandlerLP.DK_R)
 
 
 def build_dataset():
@@ -35,23 +44,23 @@ def build_dataset():
     from qlib.contrib.data.handler import Alpha158
     from qlib.data.dataset import DatasetH
 
+    segments = chronological_segments(label_horizon=2)
+    segments["test_label"] = segments["test"]
+    segments["test"] = (test_start_time(), end_time())
+
     # 特征处理器只能在训练区间拟合，避免用 valid/test 的统计量处理训练数据。
     handler = Alpha158(
         instruments=instruments(),
         start_time=start_time(),
         end_time=end_time(),
         fit_start_time=start_time(),
-        fit_end_time=train_end_time(),
+        fit_end_time=segments["train"][1],
     )
 
-    # 三个 segment 保持严格的时间顺序。回测只消费 test segment 生成的信号。
+    # 训练/验证仍隔离未来标签；预测不需要标签，保留 test 末尾全部可用特征。
     return DatasetH(
         handler=handler,
-        segments={
-            "train": (start_time(), train_end_time()),
-            "valid": (valid_start_time(), valid_end_time()),
-            "test": (test_start_time(), end_time()),
-        },
+        segments=segments,
     )
 
 
@@ -61,6 +70,10 @@ def build_port_analysis_config(model, dataset) -> dict:
     这个字典对应 Qlib workflow 中的 ``port_analysis_config``。Qlib 会根据
     ``class`` 和 ``module_path`` 创建组件，并把 ``kwargs`` 传给组件构造函数。
     """
+    topk = int(os.getenv("QLIB_TOPK", "2"))
+    n_drop = int(os.getenv("QLIB_N_DROP", "1"))
+    if topk < 1 or not 0 <= n_drop <= topk:
+        raise ValueError("topk must be positive and n_drop must be between 0 and topk")
     return {
         # Executor 推进回测时钟，把 Strategy 产生的订单交给 Exchange 撮合，
         # 并在每个交易步结束后通知 Account 更新持仓和组合价值。
@@ -82,8 +95,8 @@ def build_port_analysis_config(model, dataset) -> dict:
                 # test score。SignalRecord 还会把同一批预测单独归档为 pred.pkl。
                 "signal": (model, dataset),
                 # topk 是目标持仓数；n_drop 是单个调仓日最多替换的持仓数。
-                "topk": int(os.getenv("QLIB_TOPK", "50")),
-                "n_drop": int(os.getenv("QLIB_N_DROP", "5")),
+                "topk": topk,
+                "n_drop": n_drop,
             },
         },
         # Backtest 定义测试区间、初始资金、比较基准和市场成交假设。
@@ -116,7 +129,7 @@ def main() -> None:
 
     from qlib.contrib.model.gbdt import LGBModel
     from qlib.workflow import R
-    from qlib.workflow.record_temp import PortAnaRecord, SignalRecord
+    from qlib.workflow.record_temp import PortAnaRecord
 
     # 阶段 2：准备按时间切分的数据，并声明模型。此时还没有训练或交易。
     dataset = build_dataset()
@@ -149,8 +162,8 @@ def main() -> None:
         model.fit(dataset)
         recorder = R.get_recorder()
 
-        # 阶段 4：先生成 test score 和 label，并保存为 pred.pkl / label.pkl。
-        SignalRecord(model, dataset, recorder).generate()
+        # 阶段 4：保存完整 test 的预测，以及 test_label 段的安全标签。
+        BacktestSignalRecord(model, dataset, recorder).generate()
 
         # 阶段 5：PortAnaRecord 检查 pred.pkl 依赖后，依次运行 Strategy、
         # Executor、Exchange 和 Account，保存日频报告、持仓和风险分析。
