@@ -1,26 +1,21 @@
 import argparse
 import json
 from pathlib import Path
-import re
 import sys
 from typing import Sequence
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "06-factor-evaluation"))
 
-from factor_evaluation import DEFAULT_FACTOR, DEFAULT_LABEL, evaluate_factor
-from qlib_demo_common import init_qlib
+from factor_evaluation import (
+    DEFAULT_FACTOR, DEFAULT_LABEL, evaluate_factor, validate_expression,
+    InputValidationError, FutureDataLeakageError,
+)
+from qlib_demo_common import init_qlib, start_time, end_time
+from qlib_evaluation_metadata import evaluation_context
 
 
 SCHEMA_VERSION = "1.0"
-
-
-class InputValidationError(ValueError):
-    """CLI 输入不满足单因子评估契约。"""
-
-
-class FutureDataLeakageError(InputValidationError):
-    """候选因子包含明显的未来数据引用。"""
 
 
 class JsonArgumentParser(argparse.ArgumentParser):
@@ -43,42 +38,17 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def _ref_offsets(expression: str) -> list[int]:
-    """提取 Ref(..., offset) 的整数 offset，支持第一个参数中包含嵌套函数。"""
-    offsets = []
-    for match in re.finditer(r"\bRef\s*\(", expression, flags=re.IGNORECASE):
-        depth = 1
-        comma = None
-        index = match.end()
-        while index < len(expression) and depth:
-            char = expression[index]
-            if char == "(":
-                depth += 1
-            elif char == ")":
-                depth -= 1
-                if depth == 0 and comma is not None:
-                    raw_offset = expression[comma + 1 : index].strip()
-                    if re.fullmatch(r"[+-]?\d+", raw_offset):
-                        offsets.append(int(raw_offset))
-            elif char == "," and depth == 1:
-                comma = index
-            index += 1
-    return offsets
-
-
 def validate_request(expression: str, label: str, quantiles: int, min_cross_section: int) -> None:
-    if not expression.strip():
+    if not isinstance(expression, str) or not expression.strip():
         raise InputValidationError("expression must not be empty")
-    if not label.strip():
+    if not isinstance(label, str) or not label.strip():
         raise InputValidationError("label must not be empty")
-    if quantiles < 2:
-        raise InputValidationError("quantiles must be at least 2")
-    if min_cross_section < 2:
-        raise InputValidationError("min_cross_section must be at least 2")
-    if any(offset < 0 for offset in _ref_offsets(expression)):
-        raise FutureDataLeakageError(
-            "factor expression must not use negative Ref offsets because they read future data"
-        )
+    if type(quantiles) is not int or quantiles < 2:
+        raise InputValidationError("quantiles must be an integer of at least 2")
+    if type(min_cross_section) is not int or min_cross_section < 2:
+        raise InputValidationError("min_cross_section must be an integer of at least 2")
+    validate_expression(expression)
+    validate_expression(label, allow_future=True)
 
 
 def success_payload(metrics: dict) -> dict:
@@ -99,16 +69,24 @@ def evaluate_request(
     quantiles: int = 3,
     min_cross_section: int = 3,
     initialize: bool = True,
+    *,
+    start_time: str | None = None,
+    end_time: str | None = None,
+    label_end_time: str | None = None,
 ) -> dict:
     """校验并评估一个因子；成功返回 metrics，失败抛出原始异常。"""
     validate_request(expression, label, quantiles, min_cross_section)
     if initialize:
         init_qlib()
+    date_options = {key: value for key, value in {
+        "start_time": start_time, "end_time": end_time, "label_end_time": label_end_time,
+    }.items() if value is not None}
     return evaluate_factor(
         expression,
         label,
         quantiles=quantiles,
         min_cross_section=min_cross_section,
+        **date_options,
     )
 
 
@@ -131,7 +109,17 @@ def run(args: argparse.Namespace) -> tuple[dict, int]:
             min_cross_section=args.min_cross_section,
             initialize=False,
         )
-        return success_payload(metrics), 0
+        request = {
+            "expression": args.expression, "label": args.label,
+            "quantiles": args.quantiles, "min_cross_section": args.min_cross_section,
+            "start_time": start_time(), "end_time": end_time(),
+        }
+        payload = success_payload(metrics)
+        payload["request"] = request
+        payload["evaluation_context"] = evaluation_context(
+            request, {"start": request["start_time"], "end": request["end_time"]},
+        )
+        return payload, 0
     except Exception as exc:
         return error_payload("evaluation_error", exc), 1
 

@@ -7,4 +7,4 @@ source "$SCRIPT_DIR/../qlib_env.sh"
 
 # This demo does not use qlib init; it demonstrates raw data validation and
 # transformation before loading into qlib.
-python "$DEMO_DIR/custom_data_provider.py"
+"$QLIB_PYTHON" "$DEMO_DIR/custom_data_provider.py"

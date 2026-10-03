@@ -116,12 +116,13 @@ picked = group.sort_values("score", ascending=False).head(topk)
 ```python
 buys = current - previous
 sells = previous - current
-turnover = (len(buys) + len(sells)) / topk
+turnover = sum(abs(current_weights.get(code, 0) - previous_weights.get(code, 0))
+               for code in current_weights.keys() | previous_weights.keys())
 ```
 
 这是简化估算，不处理成交量、涨跌停、现金和最小交易单位。完整版本见第 12 节。
 
-这里采用双边换手：首次建仓为 `1`，全部替换持仓为 `2`。不同研究平台也可能报告单边换手，比较结果前必须先核对定义。
+这里按相邻两日实际等权目标仓位之差计算双边换手：首次建仓为 `1`，全部替换持仓为 `2`。候选少于 `topk` 时仍对实际入选标的等权满仓，持仓数量变化时也计入保留标的的权重变化。该估算未模拟价格变动带来的盘中权重漂移。不同研究平台也可能报告单边换手，比较结果前必须先核对定义。
 
 ### `net_return`
 
@@ -182,7 +183,7 @@ graph TD
 ## 学习检查
 
 - 使用 0、0.001、0.003 三种成本率，比较最终净值。
-- 解释集合换手估算遗漏了权重变化、成交限制和现金状态中的哪些部分。
+- 解释目标权重换手估算遗漏了权重漂移、成交限制和现金状态中的哪些部分。
 
 ## 下一步
 

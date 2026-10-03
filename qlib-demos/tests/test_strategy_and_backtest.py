@@ -61,3 +61,21 @@ def test_build_daily_report_validates_controls():
         assert "topk" in str(exc)
     else:
         raise AssertionError("topk=0 should fail")
+
+
+def test_turnover_tracks_equal_weights_when_universe_shrinks():
+    index = pd.MultiIndex.from_tuples(
+        [('2024-01-02', 'A'), ('2024-01-02', 'B'), ('2024-01-03', 'A')],
+        names=['datetime', 'instrument'],
+    )
+    data = pd.DataFrame({'score': [2., 1., 2.], 'label': [0.01, 0.01, 0.02]}, index=index)
+    report = strategy_backtest.build_daily_report(data, topk=5, cost_rate=0.001)
+    assert list(report['turnover']) == [1., 1.]
+    assert round(report.iloc[1]['net_return'], 6) == 0.019
+
+
+def test_cost_rate_must_be_finite():
+    import pytest
+    for cost in [float('nan'), float('inf'), -0.1]:
+        with pytest.raises(ValueError, match='cost_rate'):
+            strategy_backtest.build_daily_report(pd.DataFrame(), topk=2, cost_rate=cost)

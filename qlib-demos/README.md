@@ -33,11 +33,25 @@ graph TD
 
 ## 运行准备
 
-需要安装 Microsoft Qlib：
+在当前 `qlib-demos` 目录使用 Python 3.12 建立独立环境：
 
 ```bash
-pip install pyqlib pandas numpy lightgbm
+python3.12 -m venv .venv
+.venv/bin/python -m pip install -r requirements.lock
+.venv/bin/python -m pytest -q tests
+bash script/run_14.sh
+bash script/run_15.sh
 ```
+
+`requirements.lock` 固定本次验证的完整依赖，`requirements.txt` 列出直接依赖。
+Python 3.13 当前无本项目使用的 pyqlib 0.9.7 安装包。macOS 上 LightGBM
+还需要 OpenMP 运行库；如导入提示缺少 `libomp.dylib`，使用 `brew install libomp`。
+
+所有 `script/run_*.sh` 自动使用项目 `.venv/bin/python`，没有该环境时使用
+`python3`；可用 `QLIB_PYTHON=/absolute/path/to/python` 显式指定解释器。
+provider、市场和日期参数只提供默认值，不覆盖调用方环境变量。
+实验默认写入当前项目 `mlruns/`，不随启动目录变化；可用
+`QLIB_EXP_URI=file:///absolute/path/to/mlruns` 指定独立实验存储。
 
 如果环境里误装了另一个名为 `qlib` 的包，需要先移除它，否则 `import qlib` 可能不会导入 Microsoft Qlib。
 
@@ -52,7 +66,7 @@ export QLIB_PROVIDER_URI=~/.qlib/qlib_data/cn_data
 运行数据准备脚本会生成供这些 demo 共用的五只宽基 ETF 教学数据：
 
 ```bash
-python qlib-demos/download_to_qlib.py
+.venv/bin/python download_to_qlib.py
 ```
 
 | Qlib 标的 | 源代码 | 指数 |
@@ -73,7 +87,7 @@ OHLCV 和 `factor` 是 provider 的核心字段。`amount` 仅在上游真实返
 Provider 的交易日历取五只 ETF 日期的并集；每只 ETF 仍保留自己的实际上市区间，对齐到并集日历时，上市前的数据不可用并显示为 NaN。这组数据只用于教学，不代表生产股票池。统一入口脚本位于 `script/`，例如：
 
 ```bash
-QLIB_INSTRUMENTS=sh510300 bash qlib-demos/script/run_03.sh
+QLIB_INSTRUMENTS=sh510300 bash script/run_03.sh
 ```
 
 可选参数：
@@ -209,3 +223,15 @@ graph TD
 - Qlib 原生回测里 Strategy、Executor、Exchange、Account 的职责边界。
 - 自有数据接入 Qlib 前需要满足哪些字段、目录和质量约束。
 - 如何用统一口径批量评估候选，并保留每个成功与失败结果。
+
+## 本轮可靠性修复
+
+- 04/05/07/12 根据实际交易日和标签最远未来偏移清除跨段标签，测试标签也不得超过截止日。
+- 12 的五 ETF 教学默认持仓为 `topk=2`、`n_drop=1`；09 按真实等权仓位变化计换手。
+- 06/14 对表达式做受限 AST 校验，过滤非有限样本，空指标返回 JSON `null`。
+- 15 记录实验输入、代码和数据指纹；有效样本不一致时禁止排名。
+- 默认批量配置分开选择期与最终测试期，只对选择期选定候选做最终测试。
+- 本地环境、Qlib/MLflow 运行产物由当前目录 `.gitignore` 忽略；原有运行数据保留。
+
+这些修复保证计算与验证边界，不意味着五只 ETF 足以证明因子有效，也不把
+重叠标签下未校正自相关的 t 统计量或 ICIR 当成显著性结论。

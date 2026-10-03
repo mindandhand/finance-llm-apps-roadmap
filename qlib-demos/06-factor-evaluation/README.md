@@ -12,7 +12,7 @@
 graph TD
     A["factor expression"] --> C["D.features"]
     B["label expression"] --> C
-    C --> D["dropna 后的 factor/label 表"]
+    C --> D["过滤缺失和非有限值后的 factor/label 表"]
     D --> E["按 datetime 分组"]
     E --> F["Pearson IC"]
     E --> G["Spearman RankIC"]
@@ -40,7 +40,7 @@ DEFAULT_LABEL = "Ref($close, -5) / $close - 1"
 
 因子只看过去，标签看未来。这个边界是自动因子评估里最重要的安全线。
 
-### `evaluate_factor(expression, label, quantiles=5)`
+### `evaluate_factor(expression, label, quantiles=3)`
 
 这是本节的核心函数。输入是两个 Qlib 表达式，输出是一个普通 Python `dict`，方便后续 CLI、Recorder 或 Agent 调用。
 
@@ -55,7 +55,8 @@ load_features([expression, label], ["factor", "label"])
 ### `coverage`
 
 ```python
-coverage = len(data.dropna()) / len(data)
+valid = data.replace([float("inf"), float("-inf")], float("nan")).dropna()
+coverage = len(valid) / len(data)
 ```
 
 coverage 衡量表达式计算后有多少样本可用。滚动窗口太长、字段缺失、停牌或表达式非法都会降低 coverage。
@@ -82,7 +83,7 @@ g["factor"].rank().corr(g["label"].rank())
 ic_mean / ic_std
 ```
 
-`icir_daily` 是未年化的每日 IC 均值除以标准差；`icir_annualized` 再乘以 `sqrt(252)`。脚本还输出有效 IC 日期数、正 IC 日期比例和基础 t 统计量。平均 IC 高但波动也高，未必是好信号；这些诊断也不能消除小股票池、序列相关或反复筛选造成的偏差。
+`icir_daily` 是未年化的每日 IC 均值除以标准差；`icir_annualized` 再乘以 `sqrt(252)`。脚本还输出有效 IC 日期数、有效 IC 日期中的正 IC 比例和基础 t 统计量。常数横截面的 IC 未定义，不计入正 IC 比例的分母；未定义或溢出的指标输出 `null`。平均 IC 高但波动也高，未必是好信号；这些诊断也不能消除小股票池、序列相关或反复筛选造成的偏差。
 
 ### 分组收益
 
@@ -129,3 +130,13 @@ python factor_evaluation.py
 ## 下一步
 
 进入 `07-model-training-baseline`，把多个 Qlib 特征放进模型，生成样本外预测分数。
+
+## 自动评估边界
+
+核心函数也执行受限 AST 校验：只接受 `$字段`、有限数值、算术/单次比较和已知算子调用；不执行任意 Python，禁止属性访问、关键字参数和未知函数。Ref 与滚动窗口只接受带符号的整数字面量，因子的负 Ref 与所有负滚动窗口均拒绝；标签允许负 Ref。该入口有意不支持 Qlib 的全部扩展算子，使用自定义算子需要先审查其时间语义再扩充白名单。底层 Qlib/provider 配置必须可信；这不是面向恶意多租户的资源隔离沙箱。
+
+可通过 `start_time`、`end_time` 限定读取区间，`label_end_time` 按 provider 交易日历保守剔除期末未来标签尚未结束的日期；未显式传入时使用 `end_time` 或环境配置的 `QLIB_END_TIME`。嵌套 Ref 采用保守窗口，可能多剔除日期。`sample.index_sha256` 记录有效 RankIC 日期中实际日期—标的集合的摘要，供批量排名核对样本一致性；它不是数据版本或数值摘要。
+
+默认五日标签会重叠，IC t 统计量和年化 ICIR 未校正自相关，只能作为描述性诊断，不能作为显著性检验。此限制也写入每次输出的 warnings。
+
+`quantiles` 和 `min_cross_section` 只接受至少为 2 的整数，拒绝布尔值与浮点数。存在并列因子值时输出告警：分组用标的顺序打破并列，该组间差异不代表因子提供了排序信息。

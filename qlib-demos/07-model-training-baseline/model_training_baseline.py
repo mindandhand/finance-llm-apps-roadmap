@@ -7,15 +7,12 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from qlib_demo_common import (
+    chronological_segments,
     end_time,
     init_qlib,
     instruments,
     print_context,
     start_time,
-    test_start_time,
-    train_end_time,
-    valid_end_time,
-    valid_start_time,
 )
 
 
@@ -37,6 +34,8 @@ def build_dataset():
     """构造包含特征、标签、处理器及训练/测试时间段的 Qlib 数据集。"""
     from qlib.data.dataset import DatasetH
     from qlib.data.dataset.handler import DataHandlerLP
+
+    segments = chronological_segments(label_horizon=2)
 
     # DataHandlerLP 管理 raw、infer 和 learn 三种数据视图。
     handler = DataHandlerLP(
@@ -63,11 +62,7 @@ def build_dataset():
     # segment 是时间切片；它和 handler 的 learn/infer 数据视图是两个维度。
     return DatasetH(
         handler=handler,
-        segments={
-            "train": (start_time(), train_end_time()),
-            "valid": (valid_start_time(), valid_end_time()),
-            "test": (test_start_time(), end_time()),
-        },
+        segments=segments,
     )
 
 

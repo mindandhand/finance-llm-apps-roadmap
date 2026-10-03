@@ -1,3 +1,4 @@
+import math
 import os
 from pathlib import Path
 import sys
@@ -23,8 +24,8 @@ def build_daily_report(data, topk: int, cost_rate: float):
 
     if topk < 1:
         raise ValueError("topk must be at least 1")
-    if cost_rate < 0:
-        raise ValueError("cost_rate must be non-negative")
+    if not math.isfinite(cost_rate) or cost_rate < 0:
+        raise ValueError("cost_rate must be finite and non-negative")
 
     reports = []
     # previous 保存上一交易日持有的标的代码，用于和当天持仓做集合比较。
@@ -41,9 +42,15 @@ def build_daily_report(data, topk: int, cost_rate: float):
         buys = current - previous
         sells = previous - current
 
-        # 这里采用双边换手定义：(买入数量 + 卖出数量) / 目标持仓数。
-        # 首次买满 top-k 时 turnover=1；持仓全部替换时 turnover=2。
-        turnover = (len(buys) + len(sells)) / topk
+        # 按实际等权仓位计算双边换手；候选不足 topk 时仍然全额投资。
+        # 保留标的的权重变化也产生换手，首次建仓 turnover=1。
+        current_weight = 1 / len(current)
+        previous_weight = 1 / len(previous) if previous else 0
+        turnover = sum(
+            abs((current_weight if code in current else 0)
+                - (previous_weight if code in previous else 0))
+            for code in current | previous
+        )
 
         # 假设所有入选标的等权，因此组合毛收益就是它们未来收益标签的算术平均。
         # 这里没有根据 score 大小分配不同权重。

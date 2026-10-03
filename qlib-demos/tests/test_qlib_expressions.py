@@ -1,3 +1,4 @@
+import os
 import subprocess
 import sys
 import tempfile
@@ -70,12 +71,16 @@ class QlibExpressionsRunTest(unittest.TestCase):
         self.assertIn('"quantile_return_mean"', result.stdout)
 
     def test_model_training_baseline_produces_predictions(self) -> None:
-        result = subprocess.run(
-            ["bash", str(ROOT / "qlib-demos/script/run_07.sh")],
-            cwd=ROOT,
-            capture_output=True,
-            text=True,
-        )
+        with tempfile.TemporaryDirectory() as working_directory:
+            environment = os.environ.copy()
+            environment["QLIB_EXP_URI"] = (Path(working_directory) / "mlruns").as_uri()
+            result = subprocess.run(
+                ["bash", str(ROOT / "qlib-demos/script/run_07.sh")],
+                cwd=ROOT,
+                env=environment,
+                capture_output=True,
+                text=True,
+            )
 
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         self.assertIn("prediction rows:", result.stdout)

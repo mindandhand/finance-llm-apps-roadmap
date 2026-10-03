@@ -362,6 +362,7 @@ class SharedInstrumentEnvironmentTest(unittest.TestCase):
         repository_mlruns_existed = (ROOT / "mlruns").exists()
 
         with tempfile.TemporaryDirectory() as working_directory:
+            environment["QLIB_EXP_URI"] = (Path(working_directory) / "mlruns").as_uri()
             result = subprocess.run(
                 [
                     "bash",
